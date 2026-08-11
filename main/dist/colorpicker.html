@@ -1,0 +1,215 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<title>Color Picker</title>
+<style>
+html, body {
+    margin: 0;
+    padding: 0;
+    overflow: hidden;
+}
+</style>
+</head>
+<body>
+
+<style>
+:root {
+    --hue: 0;
+    --sat: 100%;
+    --light: 50%;
+    --alpha: 1;
+    --dark: 0;
+
+    --base-hsl: hsl(var(--hue), var(--sat), calc(var(--light) * 1));
+    --clr-dark: color-mix(in srgb, var(--base-hsl) calc((1 - var(--dark)) * 100%), black calc(var(--dark) * 100%));
+    --clr-final: color-mix(in srgb, var(--clr-dark) calc(var(--alpha) * 100%), transparent calc((1 - var(--alpha)) * 100%));
+}
+#colorpicker {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 10px;
+    max-height: 194px;
+    max-width: 488px;
+    padding: 5px;
+}
+.color-picker {
+    position: relative;
+    width: 400px;
+    height: 184px;
+    border-radius: 5px;
+    overflow: hidden;
+    background:
+        linear-gradient(to top, #fff, #0000),
+        linear-gradient(to right, #f00, #ff0, #0f0, #0ff, #00f, #f0f, #f00);
+}
+.color-handle {
+    position: absolute;
+    width: 10px;
+    height: 10px;
+    background-color: #0000;
+    border: 2px solid #fff;
+    border-radius: 50%;
+    transform: translate(-50%, -50%);
+    pointer-events: none;
+    left: 100%;
+    top: 0%;
+}
+.slider-wrap {
+    position: relative;
+    width: 10px;
+    height: 184px;
+    border-radius: 99px;
+}
+.slider-wrap::before {
+    content: '';
+    position: absolute;
+    inset: 0;
+    border-radius: 99px;
+    z-index: 0;
+}
+.slider {
+    position: absolute;
+    inset: 0;
+    -webkit-appearance: none;
+    appearance: none;
+    cursor: pointer;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    border-radius: 99px;
+    writing-mode: vertical-lr;
+    background: transparent;
+    z-index: 1;
+    display: flex;
+}
+.slider::-webkit-slider-runnable-track {
+    background: transparent;
+}
+.slider::-webkit-slider-thumb {
+    -webkit-appearance: none;
+    appearance: none;
+    position: relative;
+    z-index: 2;
+    height: 16px;
+    width: 16px;
+    border-radius: 50%;
+    background: #fff;
+    border: solid 3px #434343;
+}
+#darkness {
+    background: linear-gradient(var(--base-hsl), #0000);
+}
+#transparency {
+    background: linear-gradient(var(--clr-dark), #0000);
+}
+#darkness-wrap::before {
+    background-color: #000;
+}
+#transparency-wrap::before {
+    background-image: linear-gradient(45deg, #333334 25%, transparent 25%), linear-gradient(-45deg, #333334 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #333334 75%), linear-gradient(-45deg, transparent 75%, #333334 75%);
+    background-size: calc(10px / 1.5) calc(10px / 1.5);
+    background-position: 0 0, 0 calc(10px / 3), calc(10px / 3) calc(-10px / 3), calc(-10px / 3) 0px;
+}
+.color-preview-wrap {
+    display: flex;
+    position: relative;
+    height: 144px;
+    width: 30px;
+    background-image: linear-gradient(45deg, #333334 25%, transparent 25%), linear-gradient(-45deg, #333334 25%, transparent 25%), linear-gradient(45deg, transparent 75%, #333334 75%), linear-gradient(-45deg, transparent 75%, #333334 75%);
+    background-size: calc(10px / 1.5) calc(10px / 1.5);
+    background-position: 0 0, 0 calc(10px / 3), calc(10px / 3) calc(-10px / 3), calc(-10px / 3) 0px;
+    box-shadow: inset 0 0 0 1px rgba(255,255,255,0.1);
+    overflow: hidden;
+    border-radius: 5px;
+    transform: translateY(40px);
+    margin: 0;
+    inset: 0;
+    z-index: 0;
+}
+.color-preview {
+    position: absolute;
+    height: 100%;
+    width: 100%;
+    background-color: var(--clr-final);
+    inset: 0;
+    z-index: 1;
+}
+</style>
+
+<div id="colorpicker">
+    <div class="color-preview-wrap">
+        <div class="color-preview"></div>
+    </div>
+    <div class="color-picker" id="picker-box">
+        <div class="color-handle" id="picker-handle"></div>
+    </div>
+    <div class="slider-wrap" id="darkness-wrap">
+         <input type="range" value="0" class="slider" id="darkness" />
+    </div>
+    <div class="slider-wrap" id="transparency-wrap">
+         <input type="range" value="0" class="slider" id="transparency" />
+    </div>
+</div>
+
+<script>
+const box = document.getElementById('picker-box');
+const handle = document.getElementById('picker-handle');
+const darkness = document.getElementById('darkness');
+const transparency = document.getElementById('transparency');
+const root = document.documentElement;
+
+function updateColor(e) {
+    const rect = box.getBoundingClientRect();
+    let x = e.clientX - rect.left;
+    let y = e.clientY - rect.top;
+    
+    x = Math.max(0, Math.min(x, rect.width));
+    y = Math.max(0, Math.min(y, rect.height));
+    
+    const xPct = (x / rect.width) * 100;
+    const yPct = (y / rect.height) * 100;
+    
+    handle.style.left = xPct + '%';
+    handle.style.top = yPct + '%';
+    
+    const hue = (x / rect.width) * 360;
+    const lightness = 50 + (y / rect.height) * 50;
+    
+    if (yPct > 50) {
+        handle.style.borderColor = '#000';
+    } else {
+        handle.style.borderColor = '#fff';
+    }
+    
+    root.style.setProperty('--hue', hue);
+    root.style.setProperty('--light', lightness + '%');
+}
+
+let isDragging = false;
+box.addEventListener('mousedown', (e) => { 
+    isDragging = true; 
+    box.style.cursor = 'none';
+    updateColor(e); 
+});
+window.addEventListener('mousemove', (e) => { if (isDragging) updateColor(e); });
+window.addEventListener('mouseup', () => { 
+    if (isDragging) {
+        isDragging = false; 
+        box.style.cursor = 'default';
+    }
+});
+
+darkness.addEventListener('input', (e) => {
+    const darkValue = e.target.value / 100;
+    root.style.setProperty('--dark', darkValue);
+});
+
+transparency.addEventListener('input', (e) => {
+    const alphaValue = 1 - (e.target.value / 100);
+    root.style.setProperty('--alpha', alphaValue);
+});
+</script>
+
+</body>
+</html>

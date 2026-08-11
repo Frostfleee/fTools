@@ -1,0 +1,971 @@
+@import url("codicon.css");
+@import url("themes.css");
+
+/*
+   ╭─────────────────────────────╮
+   │            MAIN             │
+   ╰─────────────────────────────╯
+*/
+
+html,
+body {
+    width: 100%;
+    height: 100%;
+    background-color: var(--t-main-bg);
+    font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+    font-style: normal;
+    font-weight: 400;
+    user-select: none;
+    padding: 0;
+    margin: 0;
+    overflow: hidden;
+}
+
+.window {
+    position: relative;
+    background-color: var(--t-window-bg);
+    border-top: solid 1px var(--t-window-border);
+    border-left: solid 1px var(--t-window-border);
+    border-bottom: 50px solid var(--t-window-drag-border);
+    border-right: 50px solid var(--t-window-drag-border);
+    border-radius: 10px 0 0 0;
+    padding: 10px;
+    margin: 0;
+    height: 194px;
+    width: 469px;
+    top: 5px;
+    left: 50px;
+    bottom: 0;
+}
+
+/*
+   ╭─────────────────────────────╮
+   │           TOOLBAR           │
+   ╰─────────────────────────────╯
+*/
+
+.toolbar {
+    position: absolute;
+    top: 12px;
+    left: 0;
+    height: 150px;
+    width: 50px;
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+}
+.toolbar.hidden {
+    display: none;
+}
+.toolbar-button {
+    position: relative;
+    min-height: 36px;
+    max-height: 35px;
+    width: 40px;
+    top: 0;
+    left: 50%;
+    color: var(--t-main-color);
+    background-color: var(--t-tool-button-bg);
+    display: flex;
+    align-items: flex-end;
+    justify-content: center;
+    cursor: pointer;
+    font-weight: 400;
+    font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+    transform: translateX(-50%);
+    transition: background-color .3s ease;
+    border: none;
+    border-radius: 5px;
+}
+.toolbar-button:hover {
+    background-color: var(--t-toolbar-hover);
+}
+.toolbar-button:active {
+    background-color: var(--t-toolbar-active);
+}
+.toolbar-button::before {
+    font-family: codicon;
+    color: currentColor;
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    font-size: 18px;
+    transform: translateX(-50%) translateY(-50%);
+}
+#t-fontstyler.toolbar-button::before         { content: "\ec51"; }
+#t-colorformat.toolbar-button::before        { content: "\eb5c"; }
+#t-mediafileconverter.toolbar-button::before { content: "\ebcb"; }
+#t-autoclicker.toolbar-button::before        { content: "\ec5c"; }
+#t-settings.toolbar-button::before           { content: "\eb51"; }
+#t-settings.toolbar-button {
+    position: absolute;
+    top: 167px;
+}
+.tab,
+#loading {
+    display: none;
+}
+.tab.active,
+#loading.show {
+    display: block;
+}
+.toolbar-button.active {
+    color: var(--t-contrast-color);
+    background-color: var(--t-toolbar-hover);
+    border: 1px solid var(--t-box-border);
+}
+.toolbar-button.active::after {
+    content: '';
+    position: absolute;
+    background-color: var(--t-accent);
+    height: 16px;
+    width: 3px;
+    left: 0;
+    border-radius: 99px;
+    top: 50%;
+    transform: translateY(-50%);
+}
+#t-settings.toolbar-button::before {
+    transition: transform .2s ease;
+}
+#t-settings.toolbar-button:active::before {
+    animation: gear-spin-hold .2s ease forwards;
+}
+#t-settings.toolbar-button.active::before {
+    animation: gear-spin-click .4s ease;
+}
+@keyframes gear-spin-hold {
+    from { transform: translateX(-50%) translateY(-50%) rotate(0deg); }
+    to   { transform: translateX(-50%) translateY(-50%) rotate(-30deg); }
+}
+@keyframes gear-spin-click {
+    0%   { transform: translateX(-50%) translateY(-50%) rotate(0deg); }
+    100% { transform: translateX(-50%) translateY(-50%) rotate(240deg); }
+}
+
+/*
+   ╭─────────────────────────────╮
+   │            WARN             │
+   ╰─────────────────────────────╯
+*/
+
+.warn {
+    position: fixed;
+    top: 20px;
+    left: 50%;
+    height: 32px;
+    font-size: 14px;
+    font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+    cursor: default;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    user-select: none;
+    background: var(--t-dropdown);
+    backdrop-filter: blur(2px);
+    -webkit-backdrop-filter: blur(2px);
+    color: var(--t-contrast-color);
+    border-radius: 5px;
+    padding: 0 14px 3px 14px;
+    max-width: 500px;
+    visibility: hidden;
+    opacity: 0;
+    transform: translateX(-50%) translateY(-12px);
+    z-index: 1000;
+    border: solid 1px var(--t-box-border);
+}
+.warn.show {
+    visibility: visible;
+    animation: warn-in .5s ease forwards;
+}
+.warn.hide {
+    visibility: visible;
+    animation: warn-out .2s ease forwards;
+}
+@keyframes warn-in {
+    from { transform: translateX(-50%) translateY(-12px); opacity: 0; }
+    to   { transform: translateX(-50%) translateY(0); opacity: 1; }
+}
+@keyframes warn-out {
+    from { transform: translateX(-50%) translateY(0); opacity: 1; }
+    to   { transform: translateX(-50%) translateY(-12px); opacity: 0; }
+}
+.warn svg {
+    margin: 0 3.5px 0 0;
+}
+#file-corrupted.warn {
+    max-width: 480px;
+    height: auto;
+    min-height: 32px;
+    padding: 6px 14px 9px 14px;
+    white-space: normal;
+    line-height: 1.4;
+    align-items: flex-start;
+    text-align: center;
+}
+
+/*
+   ╭─────────────────────────────╮
+   │          DROPDOWN           │
+   ╰─────────────────────────────╯
+*/
+
+.dropdown {
+    position: absolute;
+    top: 15px;
+    bottom: 167px;
+    left: 315px;
+    cursor: pointer;
+    right: 15px;
+    padding: 4px 0 3px 9px;
+    background-color: var(--t-dropdown-bg);
+    border-radius: 5px;
+    border: none;
+    color: var(--t-contrast-color);
+    font-size: 14px;
+    border: solid 1px var(--t-dropdown-border);
+    transition: background-color .3s ease;
+    appearance: base-select;
+
+    &::picker-icon {
+        font-family: codicon;
+        color: currentColor;
+        position: absolute;
+        right: 10px;
+        top: 50%;
+        transform: translateY(-50%);
+        content: '\eab4';
+        border-radius: 5px;
+    }
+}
+.dropdown {
+    &::picker-icon:hover {
+        background-color: var(--t-dropdown-hover);
+    };
+}
+.dropdown:hover {
+    background-color: var(--t-dropdown-bg-hover);
+}
+[toupload] .dropdown {
+    display: none;
+}
+::picker(select) {
+    border: none;
+    position: fixed;
+    appearance: base-select;
+    border-radius: 8px;
+    background: var(--t-dropdown);
+    backdrop-filter: blur(10px);
+    -webkit-backdrop-filter: blur(10px);
+    padding: 4px;
+    max-height: 153px;
+    right: 200px;
+    transform: translateX(200px) translateY(-40px);
+    cursor: default;
+    scrollbar-gutter: auto;
+    scrollbar-color: var(--t-scrollbar) var(--t-scrollbar-track);
+    scrollbar-width: thin;
+    container-type: dropdown;
+    transition: none;
+    border: solid 1px var(--t-box-border);
+}
+option {
+    border-radius: 5px;
+    color: var(--t-main-color);
+    height: 33px;
+    margin-bottom: 4px;
+    font-size: 14px;
+    padding-left: 13px;
+    cursor: pointer;
+    border: solid 1px var(--t-contrast-black);
+}
+option:last-of-type {
+    margin-bottom: 0;
+}
+option:checked, option:hover {
+    background-color: var(--t-option-hover);
+    border: solid 1px var(--t-box-border);
+}
+option:checked:before {
+    content: '';
+    position: absolute;
+    width: 3px;
+    height: 16px;
+    background-color: var(--t-accent);
+    left: 5px;
+    border-radius: 99px;
+}
+::checkmark {
+    display: none;
+}
+#mediafileconverter .dropdown {
+    left: 397px;
+}
+#settings .dropdown {
+    top: 50%;
+    left: 340px;
+    right: 7px;
+    height: 30px;
+    transform: translateY(-50%);
+    background-color: var(--t-settings-dropdown-bg);
+    border: solid 1px var(--t-settings-dropdown-border);
+}
+#settings .dropdown:hover {
+    background-color: var(--t-settings-dropdown-bg-hover);
+}
+#settings ::picker(select) {
+    max-height: 115px;
+}
+optgroup[disabled] {
+    display: none;
+    margin: none;
+}
+optgroup {
+    margin-bottom: 4px;
+}
+optgroup:last-of-type {
+    margin-bottom: 0;
+}
+
+/*
+   ╭─────────────────────────────╮
+   │          INPUT-BOX          │
+   ╰─────────────────────────────╯
+*/
+
+input.input-box {
+    outline: none;
+    box-shadow: none;
+    position: absolute;
+    top: 15px;
+    bottom: 167px;
+    left: 15px;
+    right: 179px;
+    padding: 4px 9px 7px 9px;
+    font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+    background-color: var(--t-box-bg);
+    cursor: text;
+    border-radius: 5px;
+    border: none;
+    color: var(--t-contrast-color);
+    font-size: 14px;
+    transition: box-shadow .15s linear, background-color .15s linear;
+    border: solid 1px var(--t-box-border);
+    border-left: solid 2px var(--t-window-bg);
+    margin-left: -2px;
+}
+input.input-box::placeholder {
+    color: var(--t-placeholder-color);
+}
+input.input-box:hover {
+    background-color: var(--t-toolbar-hover);
+    box-shadow: inset 0 -2px var(--t-input-hover-shadow);
+}
+input.input-box:active, input.input-box:focus {
+    background-color: var(--t-toolbar-active);
+    box-shadow: inset 0 -2px var(--t-input-focus-shadow);
+}
+#mediafileconverter .input-box {
+    left: 15px;
+    right: 97px;
+}
+[toupload] input.input-box {
+    right: 15px !important;
+}
+
+/*
+   ╭─────────────────────────────╮
+   │         INPUT CLEAR         │
+   ╰─────────────────────────────╯
+*/
+
+.input-clear {
+    display: none;
+    position: absolute;
+    top: 20px;
+    right: 184px;
+    height: 20px;
+    width: 20px;
+    align-items: center;
+    justify-content: center;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    color: var(--t-placeholder-color);
+    border-radius: 30%;
+    transition: background-color .1s ease-out;
+    cursor: pointer;
+}
+.input-clear svg {
+    width: 16px;
+    height: 16px;
+}
+.input-clear:hover {
+    background-color: var(--t-clear-hover);
+}
+input.input-box:not(:placeholder-shown) ~ .input-clear {
+    display: flex;
+}
+input.input-box:not(:placeholder-shown) {
+    padding-right: 28px;
+}
+#mediafileconverter[toupload] .input-clear {
+    right: 20px;
+}
+#mediafileconverter .input-clear {
+    right: 102px;
+}
+
+/*
+   ╭─────────────────────────────╮
+   │         OUTPUT-BOX          │
+   ╰─────────────────────────────╯
+*/
+
+.output-box {
+    position: absolute;
+    top: 52px;
+    bottom: 15px;
+    left: 15px;
+    right: 15px;
+    padding: 5px 12px 0 12px;
+    background-color: var(--t-box-bg);
+    border-radius: 5px;
+    color: var(--t-contrast-color);
+    font-size: 25px;
+    border: solid 1px var(--t-box-border);
+}
+.output-box .content {
+    position: relative;
+    user-select: text;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    display: -webkit-box;
+    line-clamp: 3;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+}
+
+/*
+   ╭─────────────────────────────╮
+   │      FILE UPLOAD ZONE       │
+   ╰─────────────────────────────╯
+*/
+
+.file-upload-zone {
+    position: absolute;
+    top: 52px;
+    bottom: 15px;
+    left: 15px;
+    right: 327px;
+    background-color: var(--t-box-bg-alt);
+    border-radius: 5px;
+    cursor: default;
+    pointer-events: none;
+    overflow: hidden;
+    border: solid 1px var(--t-box-border);
+}
+[toupload] .file-upload-zone {
+    pointer-events: all;
+    cursor: pointer;
+    border: none;
+}
+[toupload] .file-upload-border {
+    height: 100%;
+    width: 100%;
+    position: absolute;
+    left: 0;
+    top: 0;
+    border-radius: 7px;
+    background: linear-gradient(90deg, var(--t-main-color) 50%, var(--t-dash-gap) 50%), linear-gradient(90deg, var(--t-main-color) 50%, var(--t-dash-gap) 50%), linear-gradient(0deg, var(--t-main-color) 50%, var(--t-dash-gap) 50%), linear-gradient(0deg, var(--t-main-color) 50%, var(--t-dash-gap) 50%);
+    background-repeat: repeat-x, repeat-x, repeat-y, repeat-y;
+    background-size: 15px 2px, 15px 2px, 2px 15px, 2px 15px;
+    background-position: 0px 0px, 100px 145px, 0px 100px, 145px 0px;
+    animation: border-rotate 7s infinite linear;
+}
+@keyframes border-rotate {
+    0% { background-position: 0px 0px, 145px 145px, 0px 145px, 145px 0px; }
+    100% { background-position: 145px 0px, 0px 145px, 0px 0px, 145px 145px; }
+}
+.file-upload-zone::after {
+    position: absolute;
+    top: 61.4%;
+    width: 93%;
+    left: 50%;
+    transform: translateX(-50%);
+    content: attr(data-filename);
+    color: var(--t-main-color);
+    font-size: 12px;
+    text-overflow: ellipsis;
+    text-align: center;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    overflow: hidden;
+}
+[toupload] .file-upload {
+    position: absolute !important;
+    width: 1px !important;
+    height: 1px !important;
+    padding: 0 !important;
+    margin: -1px !important;
+    overflow: hidden !important;
+    clip: rect(0, 0, 0, 0) !important;
+    white-space: nowrap !important;
+    border: 0 !important;
+    display: block !important;
+}
+.image-svg,
+.video-svg,
+.audio-svg,
+[toupload] .file-upload-zone::after,
+.file-upload,
+.upload-svg,
+[toupload] .unattach-file {
+    display: none;
+}
+.file-upload-zone svg {
+    position: absolute;
+    color: var(--t-main-color);
+    transform: scale(.34);
+}
+[toupload] .upload-svg {
+    display: block;
+}
+.image-svg[enabled],
+.video-svg[enabled],
+.audio-svg[enabled] {
+    transform: scale(.34) translateY(-20px);
+    display: block;
+}
+.unattach-file {
+    position: absolute;
+    top: 4px;
+    right: 4px;
+    height: 20px;
+    width: 20px;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    border-radius: 30%;
+    transition: background-color .1s ease-out;
+    pointer-events: auto;
+    cursor: pointer;
+}
+.unattach-file:hover {
+    background-color: var(--t-clear-hover);
+}
+.unattach-file svg {
+    width: 16px;
+    height: 16px;
+    top: 50%;
+    left: 50%;
+    transform: translateX(-50%) translateY(-50%);
+    color: var(--t-contrast-color);
+}
+
+/*
+   ╭─────────────────────────────╮
+   │        FILE EDIT BOX        │
+   ╰─────────────────────────────╯
+*/
+
+.file-options {
+    position: absolute;
+    top: 52px;
+    bottom: 15px;
+    right: 15px;
+    left: 167px;
+    background-color: var(--t-box-bg-alt);
+    border-radius: 5px;
+    padding: 5px;
+    border: solid 1px var(--t-box-border);
+}
+
+/*
+   ╭─────────────────────────────╮
+   │          CHECK-BOX          │
+   ╰─────────────────────────────╯
+*/
+.check-box {
+    display: flex;
+    gap: 5px;
+    font-size: 12.5px;
+}
+.check-box span {
+    transform: translateY(4px);
+    color: var(--t-contrast-color);
+}
+.check-box input {
+    height: 20px;
+    width: 20px;
+    appearance: none;
+    border: 1px solid var(--t-checkbox-border);
+    background-color: var(--t-checkbox-bg);
+    border-radius: 5px;
+    font-family: codicon;
+    font-size: 12px;
+    color: var(--t-contrast-black);
+    padding: 4px 0 0 4px;
+    margin-bottom: 9px;
+    display: block;
+    cursor: pointer;
+    transition: background-color .15s ease, opacity .15s ease;
+}
+.check-box:last-of-type input {
+    margin-bottom: 3px;
+}
+.check-box input:checked {
+    background-color: var(--t-checkbox-checked);
+    border: none;
+    transition: all .15s ease;
+}
+.check-box input::before {
+    opacity: 0;
+}
+.check-box input:checked::before {
+    content: '\eab2';
+    opacity: 1;
+}
+
+/*
+   ╭─────────────────────────────╮
+   │     COLOR FORMAT SWATCH     │
+   ╰─────────────────────────────╯
+*/
+
+#colorformat .output-box .content {
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    -webkit-line-clamp: initial;
+    line-clamp: initial;
+}
+.color-swatch {
+    --swatch-color: var(--t-swatch-default);
+    flex-shrink: 0;
+    width: 21px;
+    height: 21px;
+    border-radius: 50%;
+    background-image:
+        linear-gradient(var(--swatch-color), var(--swatch-color)),
+        repeating-conic-gradient(var(--t-swatch-grad1) 0% 25%, var(--t-swatch-grad2) 0% 50%);
+    background-size: 100% 100%, 10px 10px;
+    background-position: center;
+    box-shadow: inset 0 0 0 1px var(--t-swatch-border);
+    cursor: pointer;
+}
+.color-text {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    font-size: 19px;
+}
+.color-text.invalid {
+    margin-left: -30px;
+    padding-right: 5px;
+    font-style: italic;
+}
+
+/*
+   ╭─────────────────────────────╮
+   │        COLOR PICKER         │
+   ╰─────────────────────────────╯
+*/
+
+#colorpicker-panel {
+    position: relative;
+    height: 100%;
+}
+#colorpicker-frame {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    border: none;
+    background: var(--t-colorpicker-frame-bg);
+}
+.colorpicker-back {
+    position: absolute;
+    top: 5px;
+    left: 5px;
+    z-index: 1;
+    width: 30px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    background-color: var(--t-box-bg);
+    border: none;
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color .3s ease;
+}
+.color-picker:hover {
+    background-color: var(--t-toolbar-hover);
+}
+.colorpicker-back::before {
+    content: "\ea9b";
+    font-family: codicon;
+    font-size: 16px;
+}
+
+/*
+   ╭─────────────────────────────╮
+   │           LOADING           │
+   ╰─────────────────────────────╯
+*/
+
+.loading-img {
+    position: absolute;
+    height: 75px;
+    width: 75px;
+    left: 50%;
+    top: 35px;
+    transform: translateX(-50%);
+    user-select: none;
+    -webkit-user-drag: none;
+}
+[theme="dark"][contrast] .loading-img,
+[theme="light"][contrast] .loading-img {
+    content: url("icon_hc.png");
+}
+.loading-bar {
+    position: absolute;
+    background-color: var(--t-loading-bar);
+    height: 4px;
+    width: 80%;
+    bottom: 50px;
+    left: 10%;
+    border-radius: 99px;
+}
+.loading-bar-fill {
+    background-color: var(--t-accent);
+    height: 100%;
+    width: 0;
+    border-radius: 99px;
+    transition: width .25s ease;
+    border: solid 1px var(--t-box-border)
+}
+
+/*
+   ╭─────────────────────────────╮
+   │        AUTO-CLICKER         │
+   ╰─────────────────────────────╯
+*/
+
+.autoclicker {
+    position: relative;
+    height: 184px;
+    top: 5px;
+    left: 5px;
+    right: 5px;
+    overflow: auto;
+    scrollbar-gutter: auto;
+    scrollbar-color: var(--t-scrollbar) var(--t-scrollbar-track);
+    scrollbar-width: thin;
+    border-radius: 5px;
+}
+.autoclicker-option {
+    position: relative;
+    height: 80px;
+    width: 454px;
+    font-size: 12px;
+    font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: var(--t-box-bg);
+    margin-bottom: 5px;
+    color: var(--t-main-color);
+    border-radius: 5px;
+    border: solid 1px var(--t-box-border);
+}
+.autoclicker-option:last-of-type {
+    margin-bottom: 0;
+}
+.autoclicker-option span {
+    position: absolute;
+    top: 3px;
+    width: 100%;
+    text-align: center;
+    font-size: 13px;
+    font-weight: 400;
+    padding-bottom: 4px;
+    color: var(--t-contrast-color);
+}
+.autoclicker-option svg {
+    position: absolute;
+    top: 50%;
+    left: 50%;
+    transform: translateX(-50%) translateY(-50%);
+    height: 23px;
+    width: 23px;
+}
+
+/*
+   ╭─────────────────────────────╮
+   │           BUTTON            │
+   ╰─────────────────────────────╯
+*/
+
+button.button {
+    position: absolute;
+    width: 80px;
+    height: 26px;
+    right: 5px;
+    bottom: 5px;
+    font-size: 12.5px;
+    font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+    cursor: pointer;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: var(--t-button-bg);
+    border: none;
+    color: var(--t-contrast-color);
+    border-radius: 5px;
+    padding: 0 0 3px 0;
+    transition: background-color .3s ease;
+    border: solid 1px var(--t-box-border);
+}
+button:hover {
+    background-color: var(--t-button-hover);
+}
+button.button.featured {
+    background-color: var(--t-button-featured-bg);
+    color: var(--t-button-featured-color);
+}
+button.button.featured:hover {
+    background-color: var(--t-button-featured-hover);
+}
+button#reset.button {
+    right: 90px;
+}
+
+/*
+   ╭─────────────────────────────╮
+   │          SETTINGS           │
+   ╰─────────────────────────────╯
+*/
+
+.settings {
+    position: relative;
+    height: 180px;
+    top: 5px;
+    left: 5px;
+    right: 5px;
+    overflow: auto;
+    scrollbar-gutter: auto;
+    scrollbar-color: var(--t-scrollbar) var(--t-scrollbar-track);
+    scrollbar-width: thin;
+    border-radius: 5px;
+}
+.settings-row {
+    position: relative;
+    height: 50px;
+    width: 454px;
+    font-size: 12px;
+    font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: var(--t-box-bg);
+    margin-bottom: 5px;
+    color: var(--t-main-color);
+    border-radius: 5px;
+    border: solid 1px var(--t-box-border);
+}
+.settings-row:last-of-type {
+    margin-bottom: 0;
+}
+.settings-name {
+    position: absolute;
+    margin: 0;
+    padding: 0;
+    width: 100%;
+    height: 100%;
+}
+.settings-name svg {
+    position: absolute;
+    left: 17px;
+    top: 50%;
+    transform: translateY(-50%);
+    height: 23px;
+    width: 23px;
+}
+.settings-name span {
+    position: absolute;
+    left: 52px;
+    top: 50%;
+    transform: translateY(-50%);
+}
+.switch {
+    position: absolute;
+    display: inline-block;
+    width: 40px;
+    height: 20px;
+    right: 17px;
+}
+.switch::after {
+    content: 'Off';
+    position: absolute;
+    right: 55px;
+    transform: translateY(1px);
+}
+.switch:has(input:checked)::after {
+    content: 'On';
+}
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: var(--t-loading-bar);
+    -webkit-transition: .4s;
+    transition: .4s;
+    border: solid 1px var(--t-slider-border);
+}
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 12px;
+    width: 12px;
+    left: 4px;
+    bottom: 3px;
+    background-color: var(--t-slider-knob);
+    transition: .3s;
+}
+.slider:hover::before {
+    transform: scale(1.2);
+}
+input:checked + .slider:hover::before {
+    transform: translateX(18px) scale(1.2);
+}
+input:checked + .slider::before {
+    background-color: var(--t-slider-knob-on);
+}
+input:checked + .slider {
+    background-color: var(--t-accent);
+    border: solid 1px var(--t-accent);
+}
+input:checked + .slider:before {
+    transform: translateX(18px);
+}
+.slider.round {
+    border-radius: 99px;
+}
+.slider.round:before {
+    border-radius: 50%;
+}

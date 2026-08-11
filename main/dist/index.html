@@ -1,0 +1,332 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<link rel="stylesheet" href="styles.css">
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>fTools</title>
+</head>
+<body oncontextmenu="return false;" theme="dark">
+    <script>
+        try {
+            const saved = JSON.parse(localStorage.getItem('ftools:app-settings') || '{}');
+            document.body.setAttribute('theme', saved.appTheme || 'dark');
+            if (saved.highContrast) document.body.setAttribute('contrast', '');
+        } catch (err) {}
+    </script>
+
+    <div class="window">
+        <div class="tab" id="fontstyler">
+            <input class="input-box" placeholder="Type something"/>
+            <button class="input-clear" type="button">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-main-color)">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                </svg>
+            </button>
+            <select class="dropdown">
+                <option value="option1">𝐼𝑡𝑎𝑙𝑖𝑐</option>
+                <option value="option2">𝐁𝐨𝐥𝐝</option>
+                <option value="option3">𝑩𝒐𝒍𝒅 𝑰𝒕𝒂𝒍𝒊𝒄</option>
+                <option value="option4">𝘚𝘢𝘯𝘴 𝘐𝘵𝘢𝘭𝘪𝘤</option>
+                <option value="option5">𝗦𝗮𝗻𝘀 𝗕𝗼𝗹𝗱</option>
+                <option value="option6">𝙎𝙖𝙣𝙨 𝘽𝙤𝙡𝙙 𝙄𝙩𝙖𝙡𝙞𝙘</option>
+                <option value="option7">𝔻𝕠𝕦𝕓𝕝𝕖-𝕊𝕥𝕣𝕦𝕔𝕜</option>
+                <option value="option8">𝕱𝖗𝖆𝖐𝖙𝖚𝖗 𝕭𝖔𝖑𝖉</option>
+                <option value="option9">𝔉𝔯𝔞𝔨𝔱𝔲𝔯</option>
+                <option value="option10">uʍoꓷ ǝpı̣sdꓵ</option>
+                <option value="option11">ˢᵘᵖᵉʳˢᶜʳⁱᵖᵗ</option>
+                <option value="option12">𝙼𝚘𝚗𝚘𝚜𝚙𝚊𝚌𝚎</option>
+                <option value="option13">𝖲𝖺𝗇𝗌 𝖲𝖾𝗋𝗂𝖿</option>
+                <option value="option14">ꜱᴍᴀʟʟ ᴄᴀᴘꜱ</option>
+                <option value="option15">𝓢𝓬𝓻𝓲𝓹𝓽 𝓑𝓸𝓵𝓭</option>
+                <option value="option16">𝒮𝒸𝓇𝒾𝓅𝓉</option>
+                <option value="option17">🆂🆀🆄🅰🆁🅴🅳</option>
+                <option value="option18">🅂🅀🅄🄰🅁🄴🄳 ​ 2⃣</option>
+                <option value="option19">🅒🅘🅡🅒🅛🅔🅓</option>
+                <option value="option20">Ⓒⓘⓡⓒⓛⓔⓓ ​ ②</option>
+            </select>
+            <div class="output-box">
+                <div class="content"></div>
+                <button class="button" id="copy">
+                    <span>Copy</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="tab" id="colorformat">
+            <input class="input-box" placeholder="Type something"/>
+            <button class="input-clear" type="button">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-main-color)">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                </svg>
+            </button>
+            <select class="dropdown">
+                <option value="option1">HEX</option>
+                <option value="option2">HEX Shorthand</option>
+                <option value="option3">HEX8</option>
+                <option value="option4">HEX8 Shorthand</option>
+                <option value="option5">RGB</option>
+                <option value="option6">RGB %</option>
+                <option value="option7">RGBA</option>
+                <option value="option8">RGBA %</option>
+                <option value="option9">HSL</option>
+                <option value="option10">HSLA</option>
+                <option value="option11">HSV</option>
+                <option value="option12">CMYK</option>
+                <option value="option13">CSS Named Color</option>
+                <option value="option14">Swift</option>
+                <option value="option15">Android</option>
+                <option value="option16">Flutter</option>
+                <option value="option17">OKLCH</option>
+                <option value="option18">LCH</option>
+            </select>
+            <div class="output-box">
+                <div class="content"></div>
+                <button class="button" id="copy">
+                    <span>Copy</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="tab" id="colorpicker-panel">
+            <button class="colorpicker-back" id="colorpicker-back" type="button"></button>
+            <iframe id="colorpicker-frame" src="colorpicker.html" title="Color picker" frameborder="0" scrolling="no"></iframe>
+        </div>
+
+        <div class="tab" id="mediafileconverter" toupload>
+            <input class="file-upload" type="file" id="files"/>
+            <label class="file-upload-zone" for="files">
+                <div class="file-upload-border"></div>
+                <svg class="upload-svg" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-main-color)" class="size-6">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
+                </svg>
+                <svg class="image-svg" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-main-color)" class="size-6">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" />
+                </svg>
+                <svg class="video-svg" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-main-color)" class="size-6">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z" />
+                </svg>
+                <svg class="audio-svg" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-main-color)" class="size-6">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.114 5.636a9 9 0 0 1 0 12.728M16.463 8.288a5.25 5.25 0 0 1 0 7.424M6.75 8.25l4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z" />
+                </svg>
+
+                <div class="unattach-file">
+                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                    </svg>
+                </div>
+            </label>
+            <input class="input-box" placeholder="File name"/>
+            <button class="input-clear" type="button">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-main-color)">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                </svg>
+            </button>
+            <select class="dropdown">
+                <optgroup id="image">
+                    <option value="jpg">JPG</option>
+                    <option value="jpeg">JPEG</option>
+                    <option value="png">PNG</option>
+                    <option value="webp">WEBP</option>
+                    <option value="gif">GIF</option>
+                    <option value="bmp">BMP</option>
+                    <option value="tiff">TIFF</option>
+                    <option value="avif">AVIF</option>
+                    <option value="heic">HEIC</option>
+                    <option value="ico">ICO</option>
+                </optgroup>
+                <optgroup id="video">
+                    <option value="mp4">MP4 (soon)</option>
+                    <option value="mov">MOV (soon)</option>
+                    <option value="mkv">MKV (soon)</option>
+                    <option value="webm">WEBM (soon)</option>
+                    <option value="avi">AVI (soon)</option>
+                    <option value="wmv">WMV (soon)</option>
+                    <option value="flv">FLV (soon)</option>
+                    <option value="gif">GIF (soon)</option>
+                    <option value="mpeg">MPEG (soon)</option>
+                </optgroup>
+                <optgroup id="audio">
+                    <option value="mp3">MP3</option>
+                    <option value="wav">WAV</option>
+                    <option value="flac">FLAC</option>
+                    <option value="aac">AAC</option>
+                    <option value="ogg">OGG</option>
+                    <option value="m4a">M4A</option>
+                    <option value="wma" disabled>WMA (soon)</option>
+                    <option value="opus">OPUS</option>
+                    <option value="aiff">AIFF</option>
+                </optgroup>
+            </select>
+            <div class="file-options">
+                <label class="check-box" id="o-metadata">
+                    <input type="checkbox"/>
+                    <span>Keep metadata</span>
+                </label>
+                <label class="check-box" id="o-preserve">
+                    <input type="checkbox"/>
+                    <span>Preserve original date</span>
+                </label>
+                <label class="check-box" id="o-overwrite">
+                    <input type="checkbox"/>
+                    <span>Overwrite original file</span>
+                </label>
+                <button class="button" id="reset">
+                    <span>Reset</span>
+                </button>
+                <button class="button featured" id="proceed">
+                    <span>Proceed</span>
+                </button>
+            </div>
+        </div>
+
+        <div class="tab" id="autoclicker">
+            <div class="autoclicker">
+                <div class="autoclicker-option" id="toggle">
+                    <span>Toggle Key</span>
+                </div>
+                <div class="autoclicker-option" id="interval">
+                    <span>Click Interval</span>
+                </div>
+                <div class="autoclicker-option" id="mode">
+                    <span>Clicker Mode</span>
+                </div>
+                <div class="autoclicker-option" id="hold">
+                    <span>Hold Time</span>
+                </div>
+            </div>
+        </div>
+
+        <div class="tab" id="settings">
+            <div class="settings">
+                <div class="settings-row">
+                    <div class="settings-name">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-main-color)">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9.53 16.122a3 3 0 0 0-5.78 1.128 2.25 2.25 0 0 1-2.4 2.245 4.5 4.5 0 0 0 8.4-2.245c0-.399-.078-.78-.22-1.128Zm0 0a15.998 15.998 0 0 0 3.388-1.62m-5.043-.025a15.994 15.994 0 0 1 1.622-3.395m3.42 3.42a15.995 15.995 0 0 0 4.764-4.648l3.876-5.814a1.151 1.151 0 0 0-1.597-1.597L14.146 6.32a15.996 15.996 0 0 0-4.649 4.763m3.42 3.42a6.776 6.776 0 0 0-3.42-3.42" />
+                        </svg>
+                        <span>App theme</span>
+                    </div>
+                    <select class="dropdown" id="s-app-theme">
+                        <option value="light">Light</option>
+                        <option value="dark">Dark</option>
+                        <option value="transparent">Transparent</option>
+                    </select>
+                </div>
+
+                <div class="settings-row">
+                    <div class="settings-name">
+                    <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
+                        <circle cx="256" cy="256" r="208" fill="none" stroke-width="32px" stroke="var(--t-main-color)"/>
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M256 464c-114.88 0-208-93.12-208-208S141.12 48 256 48Z" fill="var(--t-main-color)"/>
+                    </svg>
+                        <span>High Contrast</span>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" id="s-high-contrast">
+                        <span class="slider round"></span>
+                    </label>
+                </div>
+
+                <div class="settings-row">
+                    <div class="settings-name">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-main-color)">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 8.25V6a2.25 2.25 0 0 0-2.25-2.25H6A2.25 2.25 0 0 0 3.75 6v8.25A2.25 2.25 0 0 0 6 16.5h2.25m8.25-8.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-7.5A2.25 2.25 0 0 1 8.25 18v-1.5m8.25-8.25h-6a2.25 2.25 0 0 0-2.25 2.25v6"/>
+                        </svg>
+                        <span>Always on top</span>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" id="s-always-on-top">
+                        <span class="slider round"></span>
+                    </label>
+                </div>
+
+                <div class="settings-row">
+                    <div class="settings-name">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-main-color)">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15a4.5 4.5 0 0 0 4.5 4.5H18a3.75 3.75 0 0 0 1.332-7.257 3 3 0 0 0-3.758-3.848 5.25 5.25 0 0 0-10.233 2.33A4.502 4.502 0 0 0 2.25 15Z" />
+                        </svg>
+                        <span>Remember last used tool</span>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" id="s-remember-tool">
+                        <span class="slider round"></span>
+                    </label>
+                </div>
+
+                <div class="settings-row">
+                    <div class="settings-name">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-main-color)">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="m9.75 9.75 4.5 4.5m0-4.5-4.5 4.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
+                        </svg>
+                        <span>Close on focus loss</span>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" id="s-close-on-focus-loss">
+                        <span class="slider round"></span>
+                    </label>
+                </div>
+
+                <div class="settings-row">
+                    <div class="settings-name">
+                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-main-color)">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M9.143 17.082a24.248 24.248 0 0 0 3.844.148m-3.844-.148a23.856 23.856 0 0 1-5.455-1.31 8.964 8.964 0 0 0 2.3-5.542m3.155 6.852a3 3 0 0 0 5.667 1.97m1.965-2.277L21 21m-4.225-4.225a23.81 23.81 0 0 0 3.536-1.003A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6.53 6.53m10.245 10.245L6.53 6.53M3 3l3.53 3.53" />
+                        </svg>
+                        <span>Hide warn notifications</span>
+                    </div>
+                    <label class="switch">
+                        <input type="checkbox" id="s-hide-warnings">
+                        <span class="slider round"></span>
+                    </label>
+                </div>
+            </div>
+        </div>
+
+        <div class="warn" id="copy-valid">
+            <svg width="20" height="20" fill="none" viewBox="0 -1 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2c5.523 0 10 4.477 10 10s-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2Zm3.22 6.97-4.47 4.47-1.97-1.97a.75.75 0 0 0-1.06 1.06l2.5 2.5a.75.75 0 0 0 1.06 0l5-5a.75.75 0 1 0-1.06-1.06Z" fill="#2ECC70"/></svg>
+            <a>Copied to the clipboard!</a>
+        </div>
+
+        <div class="warn" id="copy-invalid">
+            <svg width="20" height="20" fill="none" viewBox="0 -1 24 24" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M12 2c5.523 0 10 4.477 10 10s-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2M12 13.202L9.949 15.253A0.55 0.55 0 0 1 9.171 15.253L8.747 14.829A0.55 0.55 0 0 1 8.747 14.051L10.798 12L8.747 9.949A0.55 0.55 0 0 1 8.747 9.171L9.171 8.747A0.55 0.55 0 0 1 9.949 8.747L12 10.798L14.051 8.747A0.55 0.55 0 0 1 14.829 8.747L15.253 9.171A0.55 0.55 0 0 1 15.253 9.949L13.202 12L15.253 14.051A0.55 0.55 0 0 1 15.253 14.829L14.829 15.253A0.55 0.55 0 0 1 14.051 15.253Z" fill="#e74c3c"/></svg>
+            <a>Cannot copy an invalid color!</a>
+        </div>
+
+        <div class="warn" id="file-saved">
+            <svg width="20" height="20" fill="none" viewBox="0 -1 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2c5.523 0 10 4.477 10 10s-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2Zm3.22 6.97-4.47 4.47-1.97-1.97a.75.75 0 0 0-1.06 1.06l2.5 2.5a.75.75 0 0 0 1.06 0l5-5a.75.75 0 1 0-1.06-1.06Z" fill="#2ecc70"/></svg>
+            <a>File saved!</a>
+        </div>
+
+        <div class="warn" id="file-corrupted">
+            <svg width="20" height="20" fill="none" viewBox="0 -1 24 24" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M12 2c5.523 0 10 4.477 10 10s-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2M12 13.202L9.949 15.253A0.55 0.55 0 0 1 9.171 15.253L8.747 14.829A0.55 0.55 0 0 1 8.747 14.051L10.798 12L8.747 9.949A0.55 0.55 0 0 1 8.747 9.171L9.171 8.747A0.55 0.55 0 0 1 9.949 8.747L12 10.798L14.051 8.747A0.55 0.55 0 0 1 14.829 8.747L15.253 9.171A0.55 0.55 0 0 1 15.253 9.949L13.202 12L15.253 14.051A0.55 0.55 0 0 1 15.253 14.829L14.829 15.253A0.55 0.55 0 0 1 14.051 15.253Z" fill="#e74c3c"/></svg>
+            <a>The attached file may be corrupted!</a>
+        </div>
+
+        <div class="warn" id="file-invalid">
+            <svg width="20" height="20" fill="none" viewBox="0 -1 24 24" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M12 2c5.523 0 10 4.477 10 10s-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2M12 13.202L9.949 15.253A0.55 0.55 0 0 1 9.171 15.253L8.747 14.829A0.55 0.55 0 0 1 8.747 14.051L10.798 12L8.747 9.949A0.55 0.55 0 0 1 8.747 9.171L9.171 8.747A0.55 0.55 0 0 1 9.949 8.747L12 10.798L14.051 8.747A0.55 0.55 0 0 1 14.829 8.747L15.253 9.171A0.55 0.55 0 0 1 15.253 9.949L13.202 12L15.253 14.051A0.55 0.55 0 0 1 15.253 14.829L14.829 15.253A0.55 0.55 0 0 1 14.051 15.253Z" fill="#e74c3c"/></svg>
+            <a>Invalid file extension!</a>
+        </div>
+        
+        <div class="warn" id="media-convert-invalid">
+            <svg width="20" height="20" fill="none" viewBox="0 -1 24 24" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M12 2c5.523 0 10 4.477 10 10s-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2M12 13.202L9.949 15.253A0.55 0.55 0 0 1 9.171 15.253L8.747 14.829A0.55 0.55 0 0 1 8.747 14.051L10.798 12L8.747 9.949A0.55 0.55 0 0 1 8.747 9.171L9.171 8.747A0.55 0.55 0 0 1 9.949 8.747L12 10.798L14.051 8.747A0.55 0.55 0 0 1 14.829 8.747L15.253 9.171A0.55 0.55 0 0 1 15.253 9.949L13.202 12L15.253 14.051A0.55 0.55 0 0 1 15.253 14.829L14.829 15.253A0.55 0.55 0 0 1 14.051 15.253Z" fill="#e74c3c"/></svg>
+            <a>Cannot convert to the same file extension!</a>
+        </div>
+    </div>
+
+    <div id="loading">
+        <img class="loading-img" src="icon.png"/>
+        <div class="loading-bar">
+            <div class="loading-bar-fill"></div>
+        </div>
+    </div>
+
+    <div class="toolbar">
+        <button class="toolbar-button" id="t-fontstyler"></button>
+        <button class="toolbar-button" id="t-colorformat"></button>
+        <button class="toolbar-button" id="t-mediafileconverter"></button>
+        <button class="toolbar-button" id="t-autoclicker"></button>
+        <button class="toolbar-button" id="t-settings"></button>
+    </div>
+
+    <script src="app.js"></script>
+</body>
+</html>

@@ -1,0 +1,69 @@
+[theme="light"] {--tmp:tmp;}
+
+[theme="dark"] {
+    --t-main-bg: #202020ff;
+    --t-window-bg: #272727;
+    --t-box-bg: #333;
+    --t-box-bg-alt: #ffffff0d;
+    --t-dropdown: #2e2e2eff;
+    --t-dropdown-bg: #333;
+    --t-settings-dropdown-bg: #3c3c3c;
+    --t-warn-bg: red;
+
+    --t-main-color: #eaeaea;
+    --t-contrast-color: #fff;
+    --t-placeholder-color: #cacaca;
+
+    --t-accent: #4cc2ff;
+    --t-accent-hover: #48b2e9;
+
+    --t-window-border: #1d1d1d;
+    --t-box-border: none;
+    --t-dropdown-border: #0000;
+    --t-settings-dropdown-border: #3f3f3f;
+    --t-checkbox-border: #808080a0;
+    --t-swatch-border: #ffffff2e;
+    --t-slider-border: #c7c7c7;
+
+    --t-toolbar-hover: #ffffff0f;
+    --t-toolbar-active: #ffffff0a;
+    --t-dropdown-bg-hover: #3c3c3c;
+    --t-settings-dropdown-bg-hover: #404040; 
+    --t-dropdown-hover: #ffffff1e;
+    --t-option-hover: #ffffff17;
+    --t-clear-hover: #474747;
+
+    --t-button-bg: #ffffff10;
+    --t-button-hover: #ffffff17;
+    --t-button-featured-bg: #4cc2ff;
+    --t-button-featured-hover: #48b2e9;
+    --t-button-featured-color: #000;
+    --t-tool-button-bg: #0000;
+
+    --t-input-hover-shadow: #a4a4a4;
+    --t-input-focus-shadow: #4cc2ff;
+
+    --t-scrollbar: #8a8a8a80;
+    --t-checkbox-checked: #0067c0;
+    --t-swatch-grad1: #ffffff26;
+    --t-swatch-grad2: #ffffff0d;
+    --t-loading-bar: #00000033;
+    --t-slider-knob: #c7c7c7;
+    --t-slider-knob-on: #000;
+
+    --t-contrast-white: #1d1d1d;
+    --t-contrast-black: none;
+
+    --t-window-drag-border: transparent;
+    --t-scrollbar-track: transparent;
+    --t-dash-gap: transparent;
+    --t-checkbox-bg: transparent;
+    --t-swatch-default: transparent;
+    --t-colorpicker-frame-bg: transparent;
+}
+
+[theme="transparent"] {--tmp:tmp;}
+
+[theme="light"][contrast] {--tmp:tmp;}
+
+[theme="dark"][contrast] {--tmp:tmp;}

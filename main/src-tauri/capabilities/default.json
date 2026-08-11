@@ -1,0 +1,16 @@
+{
+  "$schema": "../gen/schemas/desktop-schema.json",
+  "identifier": "default",
+  "description": "Capability for the main window: core window/webview events plus the file dialog.",
+  "windows": ["main"],
+  "permissions": [
+    "core:default",
+    "core:window:default",
+    "core:webview:default",
+    "core:event:default",
+    "core:window:allow-set-always-on-top", 
+    "core:window:allow-close",
+    "dialog:default",
+    "allow-app-commands"
+  ]
+}
