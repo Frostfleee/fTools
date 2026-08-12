@@ -351,8 +351,8 @@ input.input-box {
     font-size: 14px;
     transition: box-shadow .15s linear, background-color .15s linear;
     border: solid 1px var(--t-box-border);
-    border-left: solid 2px var(--t-window-bg);
-    margin-left: -2px;
+    border-left: solid var(--t-input-left-fix-size) var(--t-input-left-fix);
+    margin-left: var(--t-input-left-fix-size-2);
 }
 input.input-box::placeholder {
     color: var(--t-placeholder-color);
@@ -958,7 +958,7 @@ input:checked + .slider::before {
 }
 input:checked + .slider {
     background-color: var(--t-accent);
-    border: solid 1px var(--t-accent);
+    border: solid 1px var(--t-slider-border-on);
 }
 input:checked + .slider:before {
     transform: translateX(18px);

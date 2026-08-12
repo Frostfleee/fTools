@@ -24,6 +24,7 @@
     --t-checkbox-border: #808080a0;
     --t-swatch-border: #ffffff2e;
     --t-slider-border: #c7c7c7;
+    --t-slider-border-on: #4cc2ff;
 
     --t-toolbar-hover: #ffffff0f;
     --t-toolbar-active: #ffffff0a;
@@ -42,6 +43,10 @@
 
     --t-input-hover-shadow: #a4a4a4;
     --t-input-focus-shadow: #4cc2ff;
+
+    --t-input-left-fix: #272727;
+    --t-input-left-fix-size: 2px;
+    --t-input-left-fix-size-2: -2px;
 
     --t-scrollbar: #8a8a8a80;
     --t-checkbox-checked: #0067c0;
@@ -64,6 +69,136 @@
 
 [theme="transparent"] {--tmp:tmp;}
 
-[theme="light"][contrast] {--tmp:tmp;}
+[theme="light"][contrast] {
+    --t-main-bg: #fff;
+    --t-window-bg: #fff;
+    --t-box-bg: #fff;
+    --t-box-bg-alt: #fff;
+    --t-dropdown: #fff;
+    --t-dropdown-bg: #fff;
+    --t-settings-dropdown-bg: #fff;
+    --t-warn-bg: #fff;
 
-[theme="dark"][contrast] {--tmp:tmp;}
+    --t-main-color: #000;
+    --t-contrast-color: #000;
+    --t-placeholder-color: #000;
+
+    --t-accent: #fff;
+    --t-accent-hover: #fff;
+
+    --t-window-border: #000;
+    --t-box-border: #000;
+    --t-dropdown-border: #000;
+    --t-settings-dropdown-border: #000;
+    --t-checkbox-border: #000;
+    --t-swatch-border: #000;
+    --t-slider-border: #000;
+    --t-slider-border-on: #000;
+
+    --t-toolbar-hover: #fff;
+    --t-toolbar-active: #fff;
+    --t-dropdown-bg-hover: #fff;
+    --t-settings-dropdown-bg-hover: #fff;
+    --t-dropdown-hover: #fff;
+    --t-option-hover: #fff;
+    --t-clear-hover: #fff;
+
+    --t-button-bg: #fff;
+    --t-button-hover: #fff;
+    --t-button-featured-bg: #fff;
+    --t-button-featured-hover: #fff;
+    --t-button-featured-color: #000;
+    --t-tool-button-bg: #fff;
+
+    --t-input-hover-shadow: #fff;
+    --t-input-focus-shadow: #fff;
+
+    --t-input-left-fix: #000;
+    --t-input-left-fix-size: 1px;
+    --t-input-left-fix-size-2: 0;
+
+    --t-scrollbar: #fff;
+    --t-checkbox-checked: #000;
+    --t-swatch-grad1: #fff;
+    --t-swatch-grad2: #fff;
+    --t-loading-bar: #fff;
+    --t-slider-knob: #000;
+    --t-slider-knob-on: #000;
+
+    --t-contrast-white: #fff;
+    --t-contrast-black: #fff;
+
+    --t-window-drag-border: #fff;
+    --t-scrollbar-track: #fff;
+    --t-dash-gap: #fff;
+    --t-checkbox-bg: #fff;
+    --t-swatch-default: #fff;
+    --t-colorpicker-frame-bg: #fff;
+}
+
+[theme="dark"][contrast] {
+    --t-main-bg: #000;
+    --t-window-bg: #000;
+    --t-box-bg: #000;
+    --t-box-bg-alt: #000;
+    --t-dropdown: #000;
+    --t-dropdown-bg: #000;
+    --t-settings-dropdown-bg: #000;
+    --t-warn-bg: #000;
+
+    --t-main-color: #fff;
+    --t-contrast-color: #fff;
+    --t-placeholder-color: #fff;
+
+    --t-accent: #000;
+    --t-accent-hover: #000;
+
+    --t-window-border: #fff;
+    --t-box-border: #fff;
+    --t-dropdown-border: #fff;
+    --t-settings-dropdown-border: #fff;
+    --t-checkbox-border: #fff;
+    --t-swatch-border: #fff;
+    --t-slider-border: #fff;
+    --t-slider-border-on: #fff;
+
+    --t-toolbar-hover: #000;
+    --t-toolbar-active: #000;
+    --t-dropdown-bg-hover: #000;
+    --t-settings-dropdown-bg-hover: #000;
+    --t-dropdown-hover: #000;
+    --t-option-hover: #000;
+    --t-clear-hover: #000;
+
+    --t-button-bg: #000;
+    --t-button-hover: #000;
+    --t-button-featured-bg: #000;
+    --t-button-featured-hover: #000;
+    --t-button-featured-color: #fff;
+    --t-tool-button-bg: #000;
+
+    --t-input-hover-shadow: #000;
+    --t-input-focus-shadow: #000;
+
+    --t-input-left-fix: #fff;
+    --t-input-left-fix-size: 1px;
+    --t-input-left-fix-size-2: 0;
+
+    --t-scrollbar: #000;
+    --t-checkbox-checked: #fff;
+    --t-swatch-grad1: #000;
+    --t-swatch-grad2: #000;
+    --t-loading-bar: #000;
+    --t-slider-knob: #fff;
+    --t-slider-knob-on: #fff;
+
+    --t-contrast-white: #000;
+    --t-contrast-black: #000;
+
+    --t-window-drag-border: #000;
+    --t-scrollbar-track: #000;
+    --t-dash-gap: #000;
+    --t-checkbox-bg: #000;
+    --t-swatch-default: #000;
+    --t-colorpicker-frame-bg: #000;
+}
