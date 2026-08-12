@@ -5,5 +5,9 @@
 *.json linguist-language=JSON
 *.toml linguist-language=TOML
 
+*.json linguist-detectable=true
+*.toml linguist-detectable=true
+Cargo.lock linguist-language=TOML linguist-detectable=true
+
 **/dist/** linguist-vendored=false
 **/src-tauri/** linguist-vendored=false
