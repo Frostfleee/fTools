@@ -4,3 +4,5 @@
 *.css  linguist-language=CSS
 *.json linguist-language=JSON
 *.toml linguist-language=TOML
+
+dist/** linguist-vendored=false
