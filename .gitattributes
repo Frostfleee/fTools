@@ -6,3 +6,4 @@
 *.toml linguist-language=TOML
 
 **/dist/** linguist-vendored=false
+**/src-tauri/** linguist-vendored=false
