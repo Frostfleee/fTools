@@ -7,7 +7,9 @@
 
 *.json linguist-detectable=true
 *.toml linguist-detectable=true
-Cargo.lock linguist-language=TOML linguist-detectable=true
+*.json linguist-generated=false
+*.toml linguist-generated=false
+Cargo.lock linguist-language=TOML linguist-detectable=true linguist-generated=false
 
 **/dist/** linguist-vendored=false
 **/src-tauri/** linguist-vendored=false
