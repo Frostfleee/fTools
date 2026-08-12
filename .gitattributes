@@ -5,4 +5,4 @@
 *.json linguist-language=JSON
 *.toml linguist-language=TOML
 
-dist/** linguist-vendored=false
+**/dist/** linguist-vendored=false
