@@ -117,7 +117,7 @@
     --t-input-left-fix-size: 1px;
     --t-input-left-fix-size-2: 0;
 
-    --t-scrollbar: #fff;
+    --t-scrollbar: #000;
     --t-checkbox-checked: #000;
     --t-swatch-grad1: #fff;
     --t-swatch-grad2: #fff;
@@ -184,7 +184,7 @@
     --t-input-left-fix-size: 1px;
     --t-input-left-fix-size-2: 0;
 
-    --t-scrollbar: #000;
+    --t-scrollbar: #fff;
     --t-checkbox-checked: #fff;
     --t-swatch-grad1: #000;
     --t-swatch-grad2: #000;
