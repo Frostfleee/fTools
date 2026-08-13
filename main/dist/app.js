@@ -825,6 +825,7 @@ function setupMediaPanel() {
     const loadingPanel = document.getElementById('loading');
     const loadingBarFill = loadingPanel?.querySelector('.loading-bar-fill');
     const windowEl = document.querySelector('.window');
+    const toolbarEl = document.querySelector('.toolbar');
 
     function setProgress(percent) {
         if (loadingBarFill) loadingBarFill.style.width = `${percent}%`;
@@ -836,12 +837,14 @@ function setupMediaPanel() {
         panel.classList.remove('active');
         loadingPanel?.classList.add('show');
         windowEl?.classList.add('hidden');
+        toolbarEl?.classList.add('hidden');
     }
 
     function hideLoading() {
         loadingPanel?.classList.remove('show');
         panel.classList.add('active');
         windowEl?.classList.remove('hidden');
+        toolbarEl?.classList.remove('hidden');
     }
 
     const isTauri = '__TAURI_INTERNALS__' in window;
@@ -902,8 +905,17 @@ function setupMediaPanel() {
             group.disabled = !keepEnabled;
         });
 
-        const firstOption = matchingGroup.querySelector('option');
-        if (firstOption) dropdown.value = firstOption.value;
+        // matchingGroup's own first option can be a disabled "(soon)"
+        // placeholder (every video target still is, at least until
+        // video-to-video conversion exists). Falling back to the audio
+        // group's first usable option when that happens means uploading an
+        // mp4 defaults straight to a working extraction target (mp3)
+        // instead of silently selecting a disabled option the user can't
+        // actually convert to.
+        const firstUsable = (group) => Array.from(group.querySelectorAll('option')).find(opt => !opt.disabled);
+        const defaultOption = firstUsable(matchingGroup)
+            || (matchingGroup.id === 'video' ? firstUsable(panel.querySelector('#audio')) : null);
+        if (defaultOption) dropdown.value = defaultOption.value;
 
         Object.entries(typeSvgs).forEach(([type, svg]) => {
             if (!svg) return;
@@ -1018,11 +1030,20 @@ function setupMediaPanel() {
             : typeSvgs.audio?.hasAttribute('enabled') ? 'audio'
             : null;
 
-        if (mediaKind === 'video') {
-            console.warn('Video conversion is not implemented yet (image and audio conversion work now).');
+        // A video source with an audio target (extracting mp4's audio track
+        // as mp3/wav/flac/etc.) already works end to end on the backend;
+        // only video-to-video conversion is still unimplemented. targetIsAudio
+        // is read from the dropdown's own optgroup rather than hardcoding a
+        // format list here, so it stays correct as new audio formats get
+        // added without needing a matching change in this file.
+        const targetIsAudio = dropdown.selectedOptions[0]?.closest('optgroup')?.id === 'audio';
+        const effectiveKind = (mediaKind === 'video' && targetIsAudio) ? 'audio' : mediaKind;
+
+        if (mediaKind === 'video' && !targetIsAudio) {
+            console.warn('Video-to-video conversion is not implemented yet (video-to-audio extraction, and image/audio conversion, work now).');
             return;
         }
-        if (mediaKind !== 'image' && mediaKind !== 'audio') {
+        if (effectiveKind !== 'image' && effectiveKind !== 'audio') {
             return;
         }
 
@@ -1035,7 +1056,7 @@ function setupMediaPanel() {
         });
 
         try {
-            const outputPath = mediaKind === 'image'
+            const outputPath = effectiveKind === 'image'
                 ? await invoke('convert_image', {
                     sourcePath: originalFilePath,
                     outputName: fileNameInput.value || originalFileName,

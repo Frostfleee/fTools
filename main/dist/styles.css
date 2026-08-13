@@ -54,6 +54,7 @@ body {
     flex-direction: column;
     gap: 4px;
 }
+.window.hidden,
 .toolbar.hidden {
     display: none;
 }
@@ -472,6 +473,8 @@ input.input-box:not(:placeholder-shown) {
     border: none;
 }
 [toupload] .file-upload-border {
+    --value1: 90px;
+    --value2: 145px;
     height: 100%;
     width: 100%;
     position: absolute;
@@ -481,12 +484,12 @@ input.input-box:not(:placeholder-shown) {
     background: linear-gradient(90deg, var(--t-main-color) 50%, var(--t-dash-gap) 50%), linear-gradient(90deg, var(--t-main-color) 50%, var(--t-dash-gap) 50%), linear-gradient(0deg, var(--t-main-color) 50%, var(--t-dash-gap) 50%), linear-gradient(0deg, var(--t-main-color) 50%, var(--t-dash-gap) 50%);
     background-repeat: repeat-x, repeat-x, repeat-y, repeat-y;
     background-size: 15px 2px, 15px 2px, 2px 15px, 2px 15px;
-    background-position: 0px 0px, 100px 145px, 0px 100px, 145px 0px;
-    animation: border-rotate 7s infinite linear;
+    background-position: 0px 0px, var(--value2) var(--value2), 0px var(--value2), var(--value2) 0px;
+    animation: border-rotate 3s infinite linear;
 }
 @keyframes border-rotate {
-    0% { background-position: 0px 0px, 145px 145px, 0px 145px, 145px 0px; }
-    100% { background-position: 145px 0px, 0px 145px, 0px 0px, 145px 145px; }
+    0% { background-position: 0px 0px, var(--value1) var(--value2), 0px var(--value1), var(--value2) 0px; }
+    100% { background-position: var(--value1) 0px, 0px var(--value2), 0px 0px, var(--value2) var(--value1) }
 }
 .file-upload-zone::after {
     position: absolute;
@@ -733,6 +736,9 @@ input.input-box:not(:placeholder-shown) {
 [theme="dark"][contrast] .loading-img,
 [theme="light"][contrast] .loading-img {
     content: url("icon_hc.png");
+}
+[theme="light"][contrast] .loading-img {
+    filter: invert(1);
 }
 .loading-bar {
     position: absolute;

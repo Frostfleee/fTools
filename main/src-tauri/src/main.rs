@@ -405,6 +405,24 @@ fn preserve_file_date(source_path: &Path, output_path: &Path) {
    (confirmed against the published crate registry, not just assumed), so
    reading a .opus source bypasses Symphonia entirely and reuses the same
    `ogg` + opus-rs pipeline as the encoder, just running backwards.
+
+   Video-to-audio extraction (mp4 as a source for convert_audio, video
+   output itself is still unimplemented): symphonia-format-isomp4 is a
+   general ISO Base Media File Format demuxer, the same container family
+   .m4a already used, so it can already open a real .mp4 video file and
+   enumerate every track inside it, not just audio-only ones. There is no
+   dedicated mp4 branch here as a result; a source_path ending in .mp4
+   just falls through to the same generic Symphonia probe path every other
+   format already uses. What makes that safe is the track-selection fix
+   in decode_to_pcm: it tries every track and keeps the first one that
+   actually produces a working decoder, so the video track gets skipped
+   rather than mistakenly treated as the audio to extract. This only
+   covers audio codecs Symphonia itself can decode (AAC is the common
+   case for mp4); a video file carrying an audio codec outside Symphonia's
+   registry, or a genuinely video-only mp4 with no audio track at all,
+   still fails, but does so with the same "no supported audio track"
+   error every other unreadable file already produces rather than
+   crashing or silently picking the wrong stream.
 */
 
 // Works around a real bug in symphonia-bundle-flac 0.5.5's frame
@@ -474,17 +492,32 @@ fn decode_to_pcm(source_path: &Path) -> Result<(Vec<f32>, u32, u16), String> {
 
     let mut format = probed.format;
 
-    let track = format
+    // Picking "the first track with a non-null codec" was safe when every
+    // source was audio-only (wav/flac/mp3/m4a/...), since those only ever
+    // have one track. It stops being safe once video containers (mp4) go
+    // through this same function to pull out just the audio: a video track
+    // sitting before the audio track in the file, if Symphonia tags it with
+    // any real codec type at all rather than CODEC_TYPE_NULL, would get
+    // picked here and then fail decoder construction below since Symphonia
+    // has no video codecs registered. Trying every non-null track in order
+    // and keeping the first one that actually produces a working decoder
+    // handles both cases correctly: an unrecognized/video track either comes
+    // through as CODEC_TYPE_NULL (filtered out immediately) or fails
+    // decoder construction (skipped, falling through to the next track)
+    // rather than hard-erroring on a track that was never audio to begin
+    // with.
+    let dec_opts: DecoderOptions = Default::default();
+    let (track_id, mut decoder) = format
         .tracks()
         .iter()
-        .find(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+        .filter(|t| t.codec_params.codec != CODEC_TYPE_NULL)
+        .find_map(|t| {
+            symphonia::default::get_codecs()
+                .make(&t.codec_params, &dec_opts)
+                .ok()
+                .map(|decoder| (t.id, decoder))
+        })
         .ok_or_else(|| "Couldn't find a supported audio track in this file.".to_string())?;
-
-    let dec_opts: DecoderOptions = Default::default();
-    let mut decoder = symphonia::default::get_codecs()
-        .make(&track.codec_params, &dec_opts)
-        .map_err(|e| format!("Couldn't create a decoder for this file: {e}"))?;
-    let track_id = track.id;
 
     let mut sample_buf: Option<SampleBuffer<f32>> = None;
     let mut all_samples: Vec<f32> = Vec::new();
