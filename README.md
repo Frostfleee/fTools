@@ -91,7 +91,7 @@ main/
     ├── capabilities/              
     │   └── default.json           Core window/webview/dialog permissions for the main window
     └── permissions/
-        └── convert-image.toml     Custom permission exposing convert_image, convert_audio, convert_video
+        └── convert-image.toml     Permissions (convert_image, convert_audio, convert_video)
 ```
 
 ## Roadmap
