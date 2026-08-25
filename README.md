@@ -79,10 +79,10 @@ cargo tauri dev
 
 ```
 main/
-├── index.html                     Main window UI: every tool's markup, including the color picker panel (#colorpicker-panel)
+├── index.html                     Main window UI: every tool's markup
 ├── app.js                         Frontend logic for every tool
 ├── styles.css                     App styling; imports themes.css and the bundled icon fonts
-├── themes.css                     CSS variables for the light, dark, and transparent themes (plus high contrast)
+├── themes.css                     CSS variables for the themes and high contrast variations
 └── src-tauri/
     ├── src/
     │   └── main.rs                Rust backend: image, audio, and video conversion commands
