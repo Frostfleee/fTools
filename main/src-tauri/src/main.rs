@@ -18,19 +18,9 @@ use symphonia::core::formats::FormatOptions;
 use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
-use tauri::{AppHandle, Emitter};
+use tauri::{AppHandle, Emitter, Manager};
 
-/*
-   ╭─────────────────────────────╮
-   │       IMAGE CONVERSION      │
-   ╰─────────────────────────────╯
-   Codec scope, and why: everything except heic/heif/avif goes through
-   the pure-Rust `image` crate, no system dependencies. avif *encoding*
-   also goes through `image` (via ravif/rav1e, still pure Rust). Reading
-   heic/heif/avif, and encoding *to* heic/heif, go through libheif-rs,
-   which needs the native libheif library (built via vcpkg) to be
-   present and discoverable at build time.
-*/
+/*——/ Image Conversion /—————————————————————————————————————*/
 
 fn image_conversion_supported(ext: &str) -> bool {
     matches!(
@@ -39,7 +29,6 @@ fn image_conversion_supported(ext: &str) -> bool {
     )
 }
 
-// Formats we can actually decode as a *source* image.
 fn image_source_supported(ext: &str) -> bool {
     matches!(
         ext,
@@ -51,10 +40,6 @@ fn is_heif_container(ext: &str) -> bool {
     matches!(ext, "heic" | "heif" | "avif")
 }
 
-// Decodes a HEIC/HEIF/AVIF file via libheif. The same libheif API
-// handles all three container types transparently, so no branching on
-// ext is needed here beyond routing into this function in the first
-// place.
 fn decode_heif(path: &Path) -> Result<image::DynamicImage, String> {
     let path_str = path
         .to_str()
@@ -93,9 +78,6 @@ fn decode_heif(path: &Path) -> Result<image::DynamicImage, String> {
         .ok_or_else(|| "Couldn't reassemble the decoded HEIF pixel data.".to_string())
 }
 
-// Encodes to HEIC via libheif's HEVC (x265) encoder and writes straight
-// to output_path (unlike the `image` crate path, there's no in-memory
-// buffer step here).
 fn encode_heif(img: &image::DynamicImage, output_path: &Path) -> Result<(), String> {
     let output_str = output_path
         .to_str()
@@ -141,13 +123,6 @@ fn encode_heif(img: &image::DynamicImage, output_path: &Path) -> Result<(), Stri
     context.write_to_file(output_str).map_err(|e| e.to_string())
 }
 
-// Windows icons are a directory of several sizes bundled into one file,
-// not a single raster, so the OS can pick whichever fits the context
-// (taskbar, Explorer tile, shortcut, etc). Each size is a fresh resize
-// down from the original decode rather than progressively downscaling
-// the previous size, so quality doesn't compound across entries. The ico
-// crate's IconDirEntry::encode stores each frame as PNG internally,
-// which is lossless raster compression, not a lossy codec like JPEG.
 const ICO_SIZES: [u32; 7] = [16, 32, 48, 64, 128, 256, 512];
 
 fn encode_multi_size_ico(img: &image::DynamicImage, output_path: &Path) -> Result<(), String> {
@@ -167,9 +142,6 @@ fn encode_multi_size_ico(img: &image::DynamicImage, output_path: &Path) -> Resul
     icon_dir.write(file).map_err(|e| e.to_string())
 }
 
-// Best-effort EXIF read. Only JPEG and PNG are handled (the formats
-// img-parts supports); anything else just returns None and conversion
-// proceeds without metadata rather than failing.
 fn extract_exif(bytes: &[u8], ext: &str) -> Option<img_parts::Bytes> {
     match ext {
         "jpg" | "jpeg" => img_parts::jpeg::Jpeg::from_bytes(img_parts::Bytes::copy_from_slice(bytes))
@@ -182,9 +154,6 @@ fn extract_exif(bytes: &[u8], ext: &str) -> Option<img_parts::Bytes> {
     }
 }
 
-// Best-effort EXIF re-injection into the freshly encoded bytes. On any
-// failure this just falls back to the un-annotated bytes instead of
-// failing the whole conversion.
 fn inject_exif(bytes: Vec<u8>, ext: &str, exif: img_parts::Bytes) -> Vec<u8> {
     let input = img_parts::Bytes::from(bytes.clone());
     let rewritten: Option<Vec<u8>> = match ext {
@@ -213,11 +182,6 @@ fn convert_image(
     preserve_date: bool,
     overwrite: bool,
 ) -> Result<String, String> {
-    // Coarse, stage-based progress. Neither the `image` crate nor libheif
-    // expose a byte-level progress callback, so this reports real
-    // checkpoints the conversion actually reaches (read done, decode done,
-    // encode+write done, fully done) rather than faking a smooth ramp.
-    // A failed emit just means nobody's listening; it's not fatal.
     let report = |percent: u8| {
         let _ = app.emit("conversion-progress", percent);
     };
@@ -262,16 +226,9 @@ fn convert_image(
     let output_path = output_dir.join(format!("{output_name}.{target_ext}"));
 
     if is_heif_container(&target_ext) && target_ext != "avif" {
-        // HEIC/HEIF target: libheif writes straight to disk. Metadata
-        // preservation isn't wired up for this path yet.
         encode_heif(&decoded, &output_path)
             .map_err(|e| format!("Couldn't encode the image as {}: {e}", target_ext))?;
     } else if target_ext == "ico" {
-        // A real Windows icon isn't one raster at one size; it's a
-        // directory of several sizes bundled together so the OS can pick
-        // whichever fits the context (taskbar vs. Explorer tile vs.
-        // shortcut, etc). The generic single-frame path below can't
-        // produce that, so ICO gets its own encoder.
         encode_multi_size_ico(&decoded, &output_path)
             .map_err(|e| format!("Couldn't encode the image as ico: {e}"))?;
     } else {
@@ -327,10 +284,8 @@ fn preserve_file_date(source_path: &Path, output_path: &Path) {
     }
 }
 
+/*——/ Audio Conversion /—————————————————————————————————————*/
 /*
-   ╭─────────────────────────────╮
-   │       AUDIO CONVERSION      │
-   ╰─────────────────────────────╯
    Symphonia decodes; there's no equivalent all-in-one crate for audio the
    way the `image` crate covers images, so each output format needed its
    own encoder crate, evaluated and verified separately against each
@@ -406,49 +361,44 @@ fn preserve_file_date(source_path: &Path, output_path: &Path) {
    reading a .opus source bypasses Symphonia entirely and reuses the same
    `ogg` + opus-rs pipeline as the encoder, just running backwards.
 
-   Video-to-audio extraction (mp4 as a source for convert_audio, video
-   output itself is still unimplemented): symphonia-format-isomp4 is a
-   general ISO Base Media File Format demuxer, the same container family
-   .m4a already used, so it can already open a real .mp4 video file and
-   enumerate every track inside it, not just audio-only ones. There is no
-   dedicated mp4 branch here as a result; a source_path ending in .mp4
-   just falls through to the same generic Symphonia probe path every other
-   format already uses. What makes that safe is the track-selection fix
-   in decode_to_pcm: it tries every track and keeps the first one that
-   actually produces a working decoder, so the video track gets skipped
-   rather than mistakenly treated as the audio to extract. This only
-   covers audio codecs Symphonia itself can decode (AAC is the common
-   case for mp4); a video file carrying an audio codec outside Symphonia's
-   registry, or a genuinely video-only mp4 with no audio track at all,
-   still fails, but does so with the same "no supported audio track"
-   error every other unreadable file already produces rather than
-   crashing or silently picking the wrong stream.
+   Video-to-audio extraction (mp4 and mov as sources for convert_audio,
+   video output itself is still unimplemented): symphonia-format-isomp4 is
+   a general ISO Base Media File Format demuxer, the same container family
+   .m4a already used and the one mp4 itself was derived from QuickTime's
+   .mov to begin with, so it can already open a real video file in either
+   container and enumerate every track inside it, not just audio-only
+   ones. There is no dedicated mp4 or mov branch here as a result; a
+   source_path ending in either just falls through to the same generic
+   Symphonia probe path every other format already uses, the same way
+   adding mov required zero changes to this function: nothing here gates
+   on a source extension allowlist at all except the wma/opus/flac special
+   cases above, so any container Symphonia's isomp4 reader can open already
+   works today, no matter what gets added to the video optgroup next. What
+   makes that safe is the track-selection fix in decode_to_pcm: it tries
+   every track and keeps the first one that actually produces a working
+   decoder, so the video track gets skipped rather than mistakenly treated
+   as the audio to extract. This only covers audio codecs Symphonia itself
+   can decode (AAC is the common case for both mp4 and mov); a video file
+   carrying an audio codec outside Symphonia's registry, or a genuinely
+   video-only file with no audio track at all, still fails, but does so
+   with the same "no supported audio track" error every other unreadable
+   file already produces rather than crashing or silently picking the
+   wrong stream. mov specifically hasn't been run against a real file on
+   Windows yet the way mp4 was, since older QuickTime files can start with
+   a bare moov/wide/free atom instead of the ftyp atom mp4 always leads
+   with; if isomp4's probe scoring turns out not to recognize that shape,
+   the fix belongs in symphonia-format-isomp4 itself or in a fallback probe
+   attempt here, not in a new mov-specific branch.
 */
 
-// Works around a real bug in symphonia-bundle-flac 0.5.5's frame
-// validator (strict_frame_header_check in its parser.rs): it treats
-// "STREAMINFO's min and max block length are equal" as synonymous with
-// "the stream uses fixed (frame-numbered) blocking," and rejects every
-// single frame as non-monotonic the instant those two lengths differ.
-// They differ on essentially any real FLAC file, since a shorter final
-// block (whenever the sample count isn't an exact multiple of the block
-// size) is completely normal and spec-legal. Confirmed by hand against
-// the FLAC spec: the frame data itself (including its CRC-8) is valid:
-// this is Symphonia misreading STREAMINFO, not a malformed file.
-// STREAMINFO's min/max block length fields are purely informational
-// (actual per-frame block size comes from each frame's own header, which
-// this doesn't touch), so overwriting min to match max here is a safe,
-// narrowly-targeted fix that doesn't affect the real audio data at all,
-// applied to whatever bytes get handed to Symphonia's probe regardless
-// of whether the file came from encode_flac or somewhere else entirely.
 fn patch_flac_streaminfo_for_symphonia_bug(bytes: &mut [u8]) {
     if bytes.len() < 42 || &bytes[0..4] != b"fLaC" {
-        return; // not a native FLAC stream; let Symphonia report its own error
+        return;
     }
     let block_type = bytes[4] & 0x7f;
     let block_len = ((bytes[5] as usize) << 16) | ((bytes[6] as usize) << 8) | bytes[7] as usize;
     if block_type != 0 || block_len != 34 {
-        return; // STREAMINFO isn't the first metadata block or isn't its usual size; leave it alone
+        return;
     }
     bytes[8] = bytes[10];
     bytes[9] = bytes[11];
@@ -492,20 +442,6 @@ fn decode_to_pcm(source_path: &Path) -> Result<(Vec<f32>, u32, u16), String> {
 
     let mut format = probed.format;
 
-    // Picking "the first track with a non-null codec" was safe when every
-    // source was audio-only (wav/flac/mp3/m4a/...), since those only ever
-    // have one track. It stops being safe once video containers (mp4) go
-    // through this same function to pull out just the audio: a video track
-    // sitting before the audio track in the file, if Symphonia tags it with
-    // any real codec type at all rather than CODEC_TYPE_NULL, would get
-    // picked here and then fail decoder construction below since Symphonia
-    // has no video codecs registered. Trying every non-null track in order
-    // and keeping the first one that actually produces a working decoder
-    // handles both cases correctly: an unrecognized/video track either comes
-    // through as CODEC_TYPE_NULL (filtered out immediately) or fails
-    // decoder construction (skipped, falling through to the next track)
-    // rather than hard-erroring on a track that was never audio to begin
-    // with.
     let dec_opts: DecoderOptions = Default::default();
     let (track_id, mut decoder) = format
         .tracks()
@@ -582,9 +518,6 @@ fn interleaved_to_planar(samples: &[f32], channels: usize) -> Vec<Vec<f32>> {
     planar
 }
 
-// mp3lame-encoder wants separate left/right i16 buffers rather than
-// interleaved samples. Mono sources are upmixed to dual-mono rather than
-// needing a separate mono code path.
 fn to_stereo_i16(samples: &[f32], channels: u16) -> (Vec<i16>, Vec<i16>) {
     if channels <= 1 {
         let mono: Vec<i16> = samples.iter().map(|&s| to_i16(s)).collect();
@@ -615,11 +548,6 @@ fn encode_wav(samples: &[f32], sample_rate: u32, channels: u16, output_path: &Pa
     writer.finalize().map_err(|e| e.to_string())
 }
 
-// AIFF is WAV's IFF-based, big-endian cousin; simple enough to write by
-// hand rather than pull in a dedicated crate. The one tricky part is the
-// sample rate field, stored as an 80-bit SANE/IEEE-extended float rather
-// than a plain integer; standard sample rates (44100, 48000, ...) are
-// small positive integers that convert exactly, no precision loss.
 fn f64_to_ieee80(value: f64) -> [u8; 10] {
     if value == 0.0 {
         return [0u8; 10];
@@ -761,12 +689,6 @@ fn encode_ogg_vorbis(samples: &[f32], sample_rate: u32, channels: u16, output_pa
     Ok(())
 }
 
-// Shared by encode_opus and encode_aac_m4a: both formats only accept audio
-// at specific fixed sample rates, unlike WAV/FLAC/MP3/Vorbis which take
-// whatever the source already is. rubato's FftFixedInOut runs in fixed
-// chunks, so the last chunk is zero-padded up to the required size; that
-// only ever adds a few milliseconds of trailing silence, not a correctness
-// problem.
 fn resample_planar(planar_in: &[Vec<f32>], from_rate: u32, to_rate: u32) -> Result<Vec<Vec<f32>>, String> {
     use rubato::{FftFixedInOut, Resampler};
 
@@ -805,9 +727,6 @@ fn resample_planar(planar_in: &[Vec<f32>], from_rate: u32, to_rate: u32) -> Resu
     Ok(out)
 }
 
-// Interleaved-in, resampled-and-reinterleaved-out. A thin wrapper around
-// resample_planar since both PCM producers (encode_opus, encode_aac_m4a)
-// work with interleaved buffers like the rest of this file, not planar.
 fn resample_interleaved(samples: &[f32], channels: u16, from_rate: u32, to_rate: u32) -> Result<Vec<f32>, String> {
     let planar = interleaved_to_planar(samples, channels as usize);
     let resampled = resample_planar(&planar, from_rate, to_rate)?;
@@ -823,21 +742,15 @@ fn resample_interleaved(samples: &[f32], channels: u16, from_rate: u32, to_rate:
 
 const OPUS_VALID_RATES: [u32; 5] = [8000, 12000, 16000, 24000, 48000];
 
-// The two Ogg Opus header packets (RFC 7845 §5.1/§5.2). Every Ogg Opus
-// file starts with exactly these two, each alone on its own page, before
-// any audio data. input_sample_rate is informational only (players use it
-// as a hint; it doesn't have to match the rate actually encoded below) and
-// pre_skip is left at 0 rather than measured from opus-rs's own
-// algorithmic delay, see the comment at the top of this section.
 fn build_opus_head(channels: u8, input_sample_rate: u32) -> Vec<u8> {
     let mut head = Vec::with_capacity(19);
     head.extend_from_slice(b"OpusHead");
-    head.push(1); // version
+    head.push(1);
     head.push(channels);
-    head.extend_from_slice(&0u16.to_le_bytes()); // pre-skip
+    head.extend_from_slice(&0u16.to_le_bytes());
     head.extend_from_slice(&input_sample_rate.to_le_bytes());
-    head.extend_from_slice(&0i16.to_le_bytes()); // output gain
-    head.push(0); // channel mapping family 0: plain mono/stereo
+    head.extend_from_slice(&0i16.to_le_bytes());
+    head.push(0);
     head
 }
 
@@ -847,7 +760,7 @@ fn build_opus_tags() -> Vec<u8> {
     let vendor = b"fTools";
     tags.extend_from_slice(&(vendor.len() as u32).to_le_bytes());
     tags.extend_from_slice(vendor);
-    tags.extend_from_slice(&0u32.to_le_bytes()); // 0 user comments
+    tags.extend_from_slice(&0u32.to_le_bytes());
     tags
 }
 
@@ -871,7 +784,7 @@ fn encode_opus(samples: &[f32], sample_rate: u32, channels: u16, output_path: &P
 
     let file = fs::File::create(output_path).map_err(|e| e.to_string())?;
     let mut writer = PacketWriter::new(file);
-    let serial: u32 = 0x66_54_6F_6C; // arbitrary but stable per-file Ogg stream serial
+    let serial: u32 = 0x66_54_6F_6C;
 
     writer
         .write_packet(build_opus_head(channels as u8, sample_rate), serial, PacketWriteEndInfo::EndPage, 0)
@@ -880,9 +793,9 @@ fn encode_opus(samples: &[f32], sample_rate: u32, channels: u16, output_path: &P
         .write_packet(build_opus_tags(), serial, PacketWriteEndInfo::EndPage, 0)
         .map_err(|e| format!("Couldn't write the Opus comment header: {e}"))?;
 
-    let frame_size = (opus_rate / 50) as usize; // 20ms frames, a standard Opus choice
+    let frame_size = (opus_rate / 50) as usize;
     let frame_len = frame_size * channels as usize;
-    let mut encode_buf = vec![0u8; 4000]; // a single Opus frame maxes out at 1275 bytes
+    let mut encode_buf = vec![0u8; 4000];
     let mut granule: u64 = 0;
     let mut pos = 0usize;
 
@@ -912,11 +825,6 @@ fn encode_opus(samples: &[f32], sample_rate: u32, channels: u16, output_path: &P
     Ok(())
 }
 
-// Reads an Ogg Opus source by hand rather than through Symphonia (see the
-// comment at the top of this section for why). Always decodes at 48 kHz:
-// per the Opus spec the decoder's output rate is independent of whatever
-// rate was actually encoded, and 48 kHz is the highest-fidelity, always-
-// valid choice regardless of the source's internal bandwidth.
 fn decode_opus(source_path: &Path) -> Result<(Vec<f32>, u32, u16), String> {
     use ogg::reading::PacketReader;
     use opus_rs::OpusDecoder;
@@ -944,7 +852,7 @@ fn decode_opus(source_path: &Path) -> Result<(Vec<f32>, u32, u16), String> {
     let mut decoder = OpusDecoder::new(48000, channels as usize)
         .map_err(|e| format!("Couldn't create the Opus decoder: {e}"))?;
 
-    const MAX_FRAME_SAMPLES: usize = 5760; // 120ms @ 48kHz, the largest possible Opus frame
+    const MAX_FRAME_SAMPLES: usize = 5760;
     let mut pcm_buf = vec![0.0f32; MAX_FRAME_SAMPLES * channels as usize];
     let mut all_samples: Vec<f32> = Vec::new();
 
@@ -968,10 +876,6 @@ fn decode_opus(source_path: &Path) -> Result<(Vec<f32>, u32, u16), String> {
     Ok((all_samples, 48000, channels))
 }
 
-// Sample rates the Windows Media Foundation AAC encoder MFT accepts, per
-// Microsoft's documented AAC Encoder input requirements. WMA's encoder MFT
-// is documented against the same common set, so it's reused rather than
-// duplicated below.
 const AAC_SUPPORTED_RATES: [u32; 9] = [8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000];
 
 fn nearest_supported_rate(rate: u32, table: &[u32]) -> u32 {
@@ -981,35 +885,15 @@ fn nearest_supported_rate(rate: u32, table: &[u32]) -> u32 {
         .expect("rate table is never empty")
 }
 
-// What differs between the three Media Foundation Sink Writer encoders
-// below; everything else about driving IMFSinkWriter is identical.
 struct MfEncoderProfile {
     subtype: windows::core::GUID,
     valid_rates: &'static [u32],
     bitrate_stereo: u32,
     bitrate_mono: u32,
-    // Raw ADTS AAC (.aac) has no container of its own that Media
-    // Foundation can pick from the file extension the way it picks MP4
-    // for .m4a or ASF for .wma, so it needs an explicit payload-type
-    // attribute and an explicit transcode container type. M4A and WMA
-    // both leave this false and let MFCreateSinkWriterFromURL resolve
-    // the container from the output extension on its own.
     adts: bool,
-    // WMA's encoder MFT only accepts a small table of fixed internal
-    // bitrate/rate/channel profiles, unlike AAC's, which accepts a
-    // freely declared combination. Pre-declaring an exact AVG_BITRATE on
-    // the output type that doesn't happen to match one of those profiles
-    // is what produced "the data specified... is invalid, inconsistent,
-    // or not supported" on SetInputMediaType. Instead, the bitrate is
-    // passed as a hint via SetInputMediaType's encoding-parameters
-    // argument, letting the sink writer pick a real matching profile.
     negotiate_bitrate: bool,
 }
 
-// AAC/M4A and raw AAC/ADTS go through the Media Foundation AAC encoder
-// MFT via IMFSinkWriter. Confirmed working on a real Windows machine.
-// WMA was also built on this same helper but isn't wired into
-// convert_audio; see the comment on encode_wma below for why.
 fn encode_via_media_foundation(
     samples: &[f32],
     sample_rate: u32,
@@ -1039,25 +923,12 @@ fn encode_via_media_foundation(
         (nearest, resample_interleaved(samples, channels, sample_rate, nearest)?)
     };
 
-    let block_align: u32 = 2 * channels as u32; // 16-bit PCM, the only input format these MFTs accept
+    let block_align: u32 = 2 * channels as u32;
     let pcm_bytes_per_sec = target_rate * block_align;
     let avg_bitrate = if channels >= 2 { profile.bitrate_stereo } else { profile.bitrate_mono };
     let pcm_i16: Vec<u8> = interleaved.iter().flat_map(|&s| to_i16(s).to_le_bytes()).collect();
     let url = HSTRING::from(output_path.to_string_lossy().as_ref());
 
-    // Run the whole COM/Media Foundation lifecycle on a dedicated, fresh
-    // thread rather than whatever thread Tauri happens to run this command
-    // on. The WMA encoder MFT in particular is old enough (it's a
-    // holdover from the pre-Media-Foundation Windows Media SDK era) that
-    // it can be sensitive to the calling thread's COM apartment state,
-    // and there's no way to know what state Tauri's own thread pool
-    // already left that thread in. A brand new thread guarantees a clean
-    // slate for CoInitializeEx to actually establish STA on, rather than
-    // possibly finding the thread already in MTA from something else and
-    // silently failing (the previous version ignored that failure
-    // entirely via `let _ =`, which is exactly the kind of thing that
-    // surfaces later as an opaque "catastrophic failure" instead of a
-    // clear error here).
     let handle = std::thread::spawn(move || -> Result<(), String> {
         unsafe {
             CoInitializeEx(None, COINIT_APARTMENTTHREADED)
@@ -1078,7 +949,7 @@ fn encode_via_media_foundation(
                     output_type.SetUINT32(&MF_MT_AVG_BITRATE, avg_bitrate).map_err(|e| e.to_string())?;
                 }
                 if profile.adts {
-                    output_type.SetUINT32(&MF_MT_AAC_PAYLOAD_TYPE, 1).map_err(|e| e.to_string())?; // 1 = ADTS
+                    output_type.SetUINT32(&MF_MT_AAC_PAYLOAD_TYPE, 1).map_err(|e| e.to_string())?;
                 }
 
                 let input_type = MFCreateMediaType().map_err(|e| e.to_string())?;
@@ -1097,12 +968,6 @@ fn encode_via_media_foundation(
                 MFCreateAttributes(&mut writer_attrs, 2).map_err(|e| e.to_string())?;
                 let writer_attrs = writer_attrs
                     .ok_or_else(|| "Media Foundation didn't return an attributes object.".to_string())?;
-                // WriteSample blocks the calling thread to rate-limit
-                // incoming data by default, on the assumption it's being
-                // fed in real time; this is a one-shot batch write, not a
-                // live capture, so that throttling is both unnecessary and
-                // a documented source of odd failures in exactly this
-                // usage pattern.
                 writer_attrs
                     .SetUINT32(&MF_SINK_WRITER_DISABLE_THROTTLING, 1)
                     .map_err(|e| e.to_string())?;
@@ -1134,7 +999,7 @@ fn encode_via_media_foundation(
                     .BeginWriting()
                     .map_err(|e| format!("Couldn't begin writing the output file: {e}"))?;
 
-                let chunk_frames = (target_rate / 50).max(1) as usize; // 20ms chunks
+                let chunk_frames = (target_rate / 50).max(1) as usize;
                 let chunk_bytes = chunk_frames * block_align as usize;
                 let mut offset = 0usize;
                 let mut frames_written: i64 = 0;
@@ -1156,12 +1021,6 @@ fn encode_via_media_foundation(
                     let sample = MFCreateSample().map_err(|e| e.to_string())?;
                     sample.AddBuffer(&buffer).map_err(|e| e.to_string())?;
 
-                    // Computed fresh from the exact cumulative frame count on
-                    // every chunk, rather than repeatedly adding a rounded
-                    // per-chunk duration, since 10_000_000 / target_rate
-                    // doesn't divide evenly for common rates (44100 in
-                    // particular) and the rounding error would otherwise
-                    // compound chunk over chunk across the whole file.
                     let sample_time: i64 = frames_written * 10_000_000 / target_rate as i64;
                     let next_sample_time: i64 = (frames_written + frames_in_chunk) * 10_000_000 / target_rate as i64;
                     let duration = next_sample_time - sample_time;
@@ -1213,11 +1072,6 @@ fn encode_m4a(samples: &[f32], sample_rate: u32, channels: u16, output_path: &Pa
     )
 }
 
-// Same encoder MFT as encode_m4a; the only difference is that the output
-// is bare ADTS-framed AAC (a .aac elementary stream) instead of wrapped in
-// an MP4 container. This is also what makes it readable back through
-// decode_to_pcm's normal Symphonia path: Symphonia's AAC codec crate
-// ships its own AdtsReader registered for the "aac" extension.
 fn encode_aac(samples: &[f32], sample_rate: u32, channels: u16, output_path: &Path) -> Result<(), String> {
     use windows::Win32::Media::MediaFoundation::MFAudioFormat_AAC;
     encode_via_media_foundation(
@@ -1236,27 +1090,6 @@ fn encode_aac(samples: &[f32], sample_rate: u32, channels: u16, output_path: &Pa
     )
 }
 
-// PARKED, not wired into convert_audio: WriteSample succeeds for every
-// chunk (confirmed via per-chunk error reporting that never fired), but
-// IMFSinkWriter::Finalize() fails with a bare E_UNEXPECTED ("catastrophic
-// failure") while writing the ASF file's final header. Tried and ruled
-// out: throttling (MF_SINK_WRITER_DISABLE_THROTTLING), timestamp rounding
-// drift, letting the sink negotiate bitrate via SetInputMediaType's
-// encoding-parameters instead of pre-declaring it, and our own code
-// holding a conflicting file handle at finalize time (it doesn't).
-//
-// The remaining real lead is that the WMA encoder MFT is old and
-// particular enough that it may need its actual supported output types
-// discovered via MFTEnumEx + IMFTransform::GetOutputAvailableType rather
-// than a type declared and hoped for, the same way M4A/AAC/Opus all
-// work. That path involves manually managing a Windows-allocated array of
-// raw COM interface pointers, which is a documented source of memory
-// bugs even for experienced windows-rs users (see the array-cleanup
-// confusion in microsoft/windows-rs#1685), and unlike everything else in
-// this file, a mistake there risks a crash or leak instead of a clean
-// compile error or a clean HRESULT. Deliberately not attempted blind.
-// This function and its rate table are left in place, unused, for
-// whoever picks this back up rather than deleted outright.
 #[allow(dead_code)]
 const WMA_SUPPORTED_RATES: [u32; 7] = [8000, 11025, 16000, 22050, 32000, 44100, 48000];
 
@@ -1342,6 +1175,240 @@ fn convert_audio(
     Ok(output_path.to_string_lossy().to_string())
 }
 
+/*——/ Video Conversion /—————————————————————————————————————*/
+/*
+   MOV <-> MP4 only, and it's a remux, not a re-encode: IMFSourceReader is
+   told to hand back every selected stream's *native* compressed media
+   type (MF_READWRITE_DISABLE_CONVERTERS, plus setting each stream's
+   current type to exactly its native type, which is what stops the
+   reader from quietly inserting a decoder MFT), and IMFSinkWriter is
+   given that same native type on AddStream/SetInputMediaType, so no
+   decoder or encoder ever actually runs; every sample is copied straight
+   through. This only works because MOV and MP4 are the same underlying
+   ISO Base Media File Format lineage (MP4 is the MPEG-standardized
+   descendant of QuickTime's own container), so a stream that's valid in
+   one is valid in the other with no transcoding required. That's the
+   same reasoning already used above for why symphonia-format-isomp4 can
+   pull audio out of a .mov file with zero mov-specific code.
+
+   The catch: Windows ships a Media Foundation sink for .mp4 (and .m4a,
+   used above) out of the box, but there's no registered byte-stream
+   handler for .mov, so asking MFCreateSinkWriterFromURL for a .mov
+   output fails outright rather than producing a bad file. The
+   workaround is the same trick already established for exactly this
+   Windows limitation: remux through the MP4 sink to a temporary ".mp4"
+   path, then rename it to the requested ".mov" name once Finalize()
+   succeeds. The bytes on disk are genuinely ISO-BMFF/MPEG-4 either way,
+   which is what real .mov files are too, so the renamed file opens
+   correctly in standards-compliant players.
+
+   This has been reasoned through against the actual windows-rs 0.62
+   Media Foundation bindings (function signatures, GUIDs, and the
+   ReadSample(MF_SOURCE_READER_ANY_STREAM) end-of-presentation contract
+   were all checked against the real crate source, not assumed from
+   memory), but hasn't been run against a real Windows machine the way
+   the audio paths above explicitly have been. Two things to watch for
+   if it doesn't work first try: whether MFCreateSourceReaderFromURL can
+   open an older QuickTime-authored .mov as the *source* at all (older
+   files can start with a bare moov/wide/free atom instead of the ftyp
+   atom mp4 always leads with, the same caveat already flagged for
+   Symphonia's audio-only mov path above), and whether every codec this
+   ends up being pointed at is one IMFSinkWriter's MP4 sink is willing to
+   multiplex (H.264/HEVC video and AAC audio are the safe, well-trodden
+   case).
+*/
+
+fn remux_video_container(source_path: &Path, output_path: &Path, target_ext: &str) -> Result<(), String> {
+    use std::collections::HashMap;
+    use windows::core::HSTRING;
+    use windows::Win32::Media::MediaFoundation::{
+        IMFAttributes, IMFMediaType, IMFSample, IMFSourceReader, MFCreateAttributes, MFCreateSinkWriterFromURL,
+        MFCreateSourceReaderFromURL, MFMediaType_Audio, MFMediaType_Video, MFShutdown, MFStartup, MF_MT_MAJOR_TYPE,
+        MF_READWRITE_DISABLE_CONVERTERS, MF_SINK_WRITER_DISABLE_THROTTLING, MF_SOURCE_READERF_ENDOFSTREAM,
+        MF_SOURCE_READER_ALL_STREAMS, MF_SOURCE_READER_ANY_STREAM, MF_VERSION, MFSTARTUP_FULL,
+    };
+    use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
+
+    // Windows has no built-in .mov sink: remux through the MP4 sink to a
+    // temp file in the same folder, then rename it to the .mov name.
+    let (write_path, needs_rename) = if target_ext == "mov" {
+        (output_path.with_extension("__ftools_mov_tmp__.mp4"), true)
+    } else {
+        (output_path.to_path_buf(), false)
+    };
+
+    let source_url = HSTRING::from(source_path.to_string_lossy().as_ref());
+    let write_url = HSTRING::from(write_path.to_string_lossy().as_ref());
+
+    let handle = std::thread::spawn(move || -> Result<(), String> {
+        unsafe {
+            CoInitializeEx(None, COINIT_APARTMENTTHREADED)
+                .ok()
+                .map_err(|e| format!("Couldn't initialize COM on the remux thread: {e}"))?;
+
+            let result: Result<(), String> = (|| {
+                MFStartup(MF_VERSION, MFSTARTUP_FULL).map_err(|e| format!("Couldn't start Media Foundation: {e}"))?;
+
+                let inner: Result<(), String> = (|| {
+                    let mut reader_attrs: Option<IMFAttributes> = None;
+                    MFCreateAttributes(&mut reader_attrs, 1).map_err(|e| e.to_string())?;
+                    let reader_attrs = reader_attrs
+                        .ok_or_else(|| "Media Foundation didn't return an attributes object.".to_string())?;
+                    reader_attrs
+                        .SetUINT32(&MF_READWRITE_DISABLE_CONVERTERS, 1)
+                        .map_err(|e| e.to_string())?;
+
+                    let reader: IMFSourceReader = MFCreateSourceReaderFromURL(&source_url, &reader_attrs)
+                        .map_err(|e| format!("Couldn't open the source file: {e}"))?;
+
+                    reader
+                        .SetStreamSelection(MF_SOURCE_READER_ALL_STREAMS.0 as u32, false)
+                        .map_err(|e| e.to_string())?;
+
+                    let mut writer_attrs: Option<IMFAttributes> = None;
+                    MFCreateAttributes(&mut writer_attrs, 1).map_err(|e| e.to_string())?;
+                    let writer_attrs = writer_attrs
+                        .ok_or_else(|| "Media Foundation didn't return an attributes object.".to_string())?;
+                    writer_attrs
+                        .SetUINT32(&MF_SINK_WRITER_DISABLE_THROTTLING, 1)
+                        .map_err(|e| e.to_string())?;
+
+                    let writer = MFCreateSinkWriterFromURL(&write_url, None, &writer_attrs)
+                        .map_err(|e| format!("Couldn't create the output writer: {e}"))?;
+
+                    let mut stream_map: HashMap<u32, u32> = HashMap::new();
+                    let mut stream_index: u32 = 0;
+                    loop {
+                        let native_type: IMFMediaType = match reader.GetNativeMediaType(stream_index, 0) {
+                            Ok(t) => t,
+                            Err(_) => break,
+                        };
+
+                        let major_type = native_type.GetGUID(&MF_MT_MAJOR_TYPE).map_err(|e| e.to_string())?;
+                        if major_type == MFMediaType_Video || major_type == MFMediaType_Audio {
+                            reader.SetStreamSelection(stream_index, true).map_err(|e| e.to_string())?;
+                            reader.SetCurrentMediaType(stream_index, None, &native_type).map_err(|e| {
+                                format!("This file's stream {stream_index} uses a format that can't be copied through as-is: {e}")
+                            })?;
+
+                            let output_index = writer
+                                .AddStream(&native_type)
+                                .map_err(|e| format!("Couldn't configure output stream {stream_index}: {e}"))?;
+                            writer.SetInputMediaType(output_index, &native_type, None).map_err(|e| {
+                                format!("Couldn't match output stream {stream_index} to the source format: {e}")
+                            })?;
+
+                            stream_map.insert(stream_index, output_index);
+                        }
+
+                        stream_index += 1;
+                    }
+
+                    if stream_map.is_empty() {
+                        return Err("Couldn't find a video or audio stream to copy in this file.".to_string());
+                    }
+
+                    writer.BeginWriting().map_err(|e| format!("Couldn't begin writing the output file: {e}"))?;
+
+                    loop {
+                        let mut actual_stream_index: u32 = 0;
+                        let mut stream_flags: u32 = 0;
+                        let mut timestamp: i64 = 0;
+                        let mut sample: Option<IMFSample> = None;
+
+                        reader
+                            .ReadSample(
+                                MF_SOURCE_READER_ANY_STREAM.0 as u32,
+                                0,
+                                Some(&mut actual_stream_index),
+                                Some(&mut stream_flags),
+                                Some(&mut timestamp),
+                                Some(&mut sample),
+                            )
+                            .map_err(|e| format!("Error while reading media data: {e}"))?;
+
+                        if stream_flags & (MF_SOURCE_READERF_ENDOFSTREAM.0 as u32) != 0 {
+                            break;
+                        }
+
+                        if let Some(sample) = sample {
+                            if let Some(&output_index) = stream_map.get(&actual_stream_index) {
+                                writer
+                                    .WriteSample(output_index, &sample)
+                                    .map_err(|e| format!("Couldn't write media data: {e}"))?;
+                            }
+                        }
+                    }
+
+                    writer.Finalize().map_err(|e| format!("Couldn't finalize the output file: {e}"))?;
+                    Ok(())
+                })();
+
+                let _ = MFShutdown();
+                inner
+            })();
+
+            CoUninitialize();
+            result
+        }
+    });
+
+    handle
+        .join()
+        .unwrap_or_else(|_| Err("The Media Foundation remux thread panicked.".to_string()))?;
+
+    if needs_rename {
+        fs::rename(&write_path, output_path).map_err(|e| {
+            let _ = fs::remove_file(&write_path);
+            format!("Couldn't finish writing the .mov file: {e}")
+        })?;
+    }
+
+    Ok(())
+}
+
+#[tauri::command]
+fn convert_video(
+    app: AppHandle,
+    source_path: String,
+    output_name: String,
+    target_ext: String,
+    preserve_date: bool,
+    overwrite: bool,
+) -> Result<String, String> {
+    let report = |percent: u8| {
+        let _ = app.emit("conversion-progress", percent);
+    };
+
+    let source_path = PathBuf::from(source_path);
+    let target_ext = target_ext.to_lowercase();
+
+    if !matches!(target_ext.as_str(), "mp4" | "mov") {
+        return Err(format!("\"{}\" isn't wired up for video conversion yet.", target_ext));
+    }
+
+    report(5);
+
+    let output_dir = source_path.parent().unwrap_or_else(|| Path::new(""));
+    let output_path = output_dir.join(format!("{output_name}.{target_ext}"));
+
+    remux_video_container(&source_path, &output_path, &target_ext)?;
+
+    report(85);
+
+    if preserve_date {
+        preserve_file_date(&source_path, &output_path);
+    }
+
+    if overwrite && output_path != source_path {
+        let _ = fs::remove_file(&source_path);
+    }
+
+    report(100);
+
+    Ok(output_path.to_string_lossy().to_string())
+}
+
 #[cfg(test)]
 mod audio_encoder_tests {
     use super::*;
@@ -1383,12 +1450,6 @@ mod audio_encoder_tests {
             assert!(bytes.starts_with(signature), "{extension} output has an invalid signature");
             assert!(bytes.len() > signature.len(), "{extension} output contains no audio data");
 
-            // Opus always resamples to a fixed 48kHz internally (see
-            // encode_opus), so unlike the others its round trip can't be
-            // expected to come back at the original 44.1kHz. FLAC's
-            // decode round trip only works because decode_to_pcm patches
-            // around a real Symphonia bug on the way in; see
-            // patch_flac_streaminfo_for_symphonia_bug for why.
             let (decoded, rate, channels) = decode_to_pcm(&path)
                 .unwrap_or_else(|error| panic!("{extension} decoding failed: {error}"));
             if extension == "opus" {
@@ -1406,8 +1467,14 @@ mod audio_encoder_tests {
 
 fn main() {
     tauri::Builder::default()
+        .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
+            let _ = app
+                .get_webview_window("main")
+                .expect("no main window")
+                .set_focus();
+        }))
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![convert_image, convert_audio])
+        .invoke_handler(tauri::generate_handler![convert_image, convert_audio, convert_video])
         .run(tauri::generate_context!())
         .expect("error while running fTools");
 }

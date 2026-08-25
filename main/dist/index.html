@@ -7,19 +7,31 @@
 <title>fTools</title>
 </head>
 <body oncontextmenu="return false;" theme="dark">
-    <script>
-        try {
-            const saved = JSON.parse(localStorage.getItem('ftools:app-settings') || '{}');
-            document.body.setAttribute('theme', saved.appTheme || 'dark');
-            if (saved.highContrast) document.body.setAttribute('contrast', '');
-        } catch (err) {}
-    </script>
+
+    <div class="titlebar">
+        <div data-tauri-drag-region></div>
+        <img class="titlebar-icon" src="icons/icon.png"/>
+        <div class="title" id="titlebar-title">fTools</div>
+        <div class="controls">
+            <button id="titlebar-minimize" tabindex="-1">
+                <svg width="12" height="12" viewBox="0 0 12 12">
+                    <path d="M0 6h9.9" stroke="currentColor" stroke-width="1" stroke-linecap="round" shape-rendering="crispEdges"/>
+                </svg>
+            </button>
+            <button id="titlebar-close" tabindex="-1">
+                <svg width="12" height="12" viewBox="0 0 12 12">
+                    <path d="M1 1L11 11M1 11L11 1" stroke="currentColor" stroke-width="1" stroke-linecap="round" shape-rendering="crispEdges"/>
+                </svg>
+            </button>
+        </div>
+    </div>
 
     <div class="window">
         <div class="tab" id="fontstyler">
+            <div class="input-fix"></div>
             <input class="input-box" placeholder="Type something"/>
             <button class="input-clear" type="button">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-main-color)">
+                <svg fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-main-color)">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
                 </svg>
             </button>
@@ -54,9 +66,10 @@
         </div>
 
         <div class="tab" id="colorformat">
+            <div class="input-fix"></div>
             <input class="input-box" placeholder="Type something"/>
             <button class="input-clear" type="button">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-main-color)">
+                <svg xmlns="fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-main-color)">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
                 </svg>
             </button>
@@ -90,12 +103,32 @@
 
         <div class="tab" id="colorpicker-panel">
             <button class="colorpicker-back" id="colorpicker-back" type="button"></button>
-            <iframe id="colorpicker-frame" src="colorpicker.html" title="Color picker" frameborder="0" scrolling="no"></iframe>
+            <div id="colorpicker">
+                <div class="color-preview-wrap">
+                    <div class="color-preview"></div>
+                </div>
+                <div class="color-picker" id="picker-box" tabindex="0" aria-label="Hue and lightness picker, use arrow keys to adjust">
+                    <div class="color-handle" id="picker-handle"></div>
+                </div>
+                <div class="cp-slider-wrap" id="darkness-wrap">
+                    <input type="range" value="0" class="cp-slider" id="darkness" />
+                </div>
+                <div class="cp-slider-wrap" id="transparency-wrap">
+                    <input type="range" value="0" class="cp-slider" id="transparency" />
+                </div>
+            </div>
         </div>
 
         <div class="tab" id="mediafileconverter" toupload>
-            <input class="file-upload" type="file" id="files"/>
-            <label class="file-upload-zone" for="files">
+            <input class="file-upload" type="file" id="files" tabindex="-1"/>
+            <div class="input-fix"></div>
+            <input class="input-box" placeholder="File name"/>
+            <button class="input-clear" type="button">
+                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-main-color)">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                </svg>
+            </button>
+            <label class="file-upload-zone" for="files" tabindex="0" role="button" aria-label="Upload file">
                 <div class="file-upload-border"></div>
                 <svg class="upload-svg" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-main-color)" class="size-6">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
@@ -109,19 +142,7 @@
                 <svg class="audio-svg" xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-main-color)" class="size-6">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M19.114 5.636a9 9 0 0 1 0 12.728M16.463 8.288a5.25 5.25 0 0 1 0 7.424M6.75 8.25l4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z" />
                 </svg>
-
-                <div class="unattach-file">
-                    <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor" class="size-6">
-                        <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
-                    </svg>
-                </div>
             </label>
-            <input class="input-box" placeholder="File name"/>
-            <button class="input-clear" type="button">
-                <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-main-color)">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
-                </svg>
-            </button>
             <select class="dropdown">
                 <optgroup id="image">
                     <option value="jpg">JPG</option>
@@ -136,8 +157,8 @@
                     <option value="ico">ICO</option>
                 </optgroup>
                 <optgroup id="video">
-                    <option value="mp4" disabled>MP4 (soon)</option>
-                    <option value="mov" disabled>MOV (soon)</option>
+                    <option value="mp4">MP4</option>
+                    <option value="mov">MOV</option>
                     <option value="mkv" disabled>MKV (soon)</option>
                     <option value="webm" disabled>WEBM (soon)</option>
                     <option value="avi" disabled>AVI (soon)</option>
@@ -158,6 +179,11 @@
                     <option value="aiff">AIFF</option>
                 </optgroup>
             </select>
+            <div class="unattach-file" role="button" tabindex="-1" aria-label="Remove file">
+                <svg fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                    <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                </svg>
+            </div>
             <div class="file-options">
                 <label class="check-box" id="o-metadata">
                     <input type="checkbox"/>
@@ -200,131 +226,80 @@
         <div class="tab" id="settings">
             <div class="settings">
                 <div class="settings-row">
-                    <div class="settings-name">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-main-color)">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M9.53 16.122a3 3 0 0 0-5.78 1.128 2.25 2.25 0 0 1-2.4 2.245 4.5 4.5 0 0 0 8.4-2.245c0-.399-.078-.78-.22-1.128Zm0 0a15.998 15.998 0 0 0 3.388-1.62m-5.043-.025a15.994 15.994 0 0 1 1.622-3.395m3.42 3.42a15.995 15.995 0 0 0 4.764-4.648l3.876-5.814a1.151 1.151 0 0 0-1.597-1.597L14.146 6.32a15.996 15.996 0 0 0-4.649 4.763m3.42 3.42a6.776 6.776 0 0 0-3.42-3.42" />
-                        </svg>
-                        <span>App theme</span>
-                    </div>
-                    <select class="dropdown" id="s-app-theme">
-                        <option value="light">Light</option>
-                        <option value="dark">Dark</option>
-                        <option value="transparent">Transparent</option>
-                    </select>
+                    <div class="settings-name"><i class="settings-icon fa-solid fa-brush"></i><span>App theme</span></div>
+                    <select class="dropdown" id="s-app-theme"><option value="light">Light</option><option value="dark">Dark</option><option value="transparent">Transparent</option></select>
                 </div>
-
                 <div class="settings-row">
-                    <div class="settings-name">
-                    <svg viewBox="0 0 512 512" xmlns="http://www.w3.org/2000/svg">
-                        <circle cx="256" cy="256" r="208" fill="none" stroke-width="32px" stroke="var(--t-main-color)"/>
-                        <path stroke-linecap="round" stroke-linejoin="round" d="M256 464c-114.88 0-208-93.12-208-208S141.12 48 256 48Z" fill="var(--t-main-color)"/>
-                    </svg>
-                        <span>High Contrast</span>
-                    </div>
-                    <label class="switch">
-                        <input type="checkbox" id="s-high-contrast">
-                        <span class="slider round"></span>
-                    </label>
+                    <div class="settings-name"><i class="settings-icon fa-solid fa-circle-half-stroke"></i><span>High Contrast</span></div>
+                    <label class="switch"><input type="checkbox" id="s-high-contrast"><span class="slider round"></span></label>
                 </div>
-
                 <div class="settings-row">
-                    <div class="settings-name">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-main-color)">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M16.5 8.25V6a2.25 2.25 0 0 0-2.25-2.25H6A2.25 2.25 0 0 0 3.75 6v8.25A2.25 2.25 0 0 0 6 16.5h2.25m8.25-8.25H18a2.25 2.25 0 0 1 2.25 2.25V18A2.25 2.25 0 0 1 18 20.25h-7.5A2.25 2.25 0 0 1 8.25 18v-1.5m8.25-8.25h-6a2.25 2.25 0 0 0-2.25 2.25v6"/>
-                        </svg>
-                        <span>Always on top</span>
-                    </div>
-                    <label class="switch">
-                        <input type="checkbox" id="s-always-on-top">
-                        <span class="slider round"></span>
-                    </label>
+                    <div class="settings-name"><i class="settings-icon fa-solid fa-thumbtack"></i><span>Always on top</span></div>
+                    <label class="switch"><input type="checkbox" id="s-always-on-top"><span class="slider round"></span></label>
                 </div>
-
                 <div class="settings-row">
-                    <div class="settings-name">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-main-color)">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M2.25 15a4.5 4.5 0 0 0 4.5 4.5H18a3.75 3.75 0 0 0 1.332-7.257 3 3 0 0 0-3.758-3.848 5.25 5.25 0 0 0-10.233 2.33A4.502 4.502 0 0 0 2.25 15Z" />
-                        </svg>
-                        <span>Remember last used tool</span>
-                    </div>
-                    <label class="switch">
-                        <input type="checkbox" id="s-remember-tool">
-                        <span class="slider round"></span>
-                    </label>
+                    <div class="settings-name"><i class="settings-icon fa-solid fa-clock-rotate-left"></i><span>Remember last used tool</span></div>
+                    <label class="switch"><input type="checkbox" id="s-remember-tool"><span class="slider round"></span></label>
                 </div>
-
                 <div class="settings-row">
-                    <div class="settings-name">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-main-color)">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="m9.75 9.75 4.5 4.5m0-4.5-4.5 4.5M21 12a9 9 0 1 1-18 0 9 9 0 0 1 18 0Z" />
-                        </svg>
-                        <span>Close on focus loss</span>
-                    </div>
-                    <label class="switch">
-                        <input type="checkbox" id="s-close-on-focus-loss">
-                        <span class="slider round"></span>
-                    </label>
+                    <div class="settings-name"><i class="settings-icon fa-solid fa-eye-low-vision"></i><span>Close on focus loss</span></div>
+                    <label class="switch"><input type="checkbox" id="s-close-on-focus-loss"><span class="slider round"></span></label>
                 </div>
-
                 <div class="settings-row">
-                    <div class="settings-name">
-                        <svg xmlns="http://www.w3.org/2000/svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-main-color)">
-                            <path stroke-linecap="round" stroke-linejoin="round" d="M9.143 17.082a24.248 24.248 0 0 0 3.844.148m-3.844-.148a23.856 23.856 0 0 1-5.455-1.31 8.964 8.964 0 0 0 2.3-5.542m3.155 6.852a3 3 0 0 0 5.667 1.97m1.965-2.277L21 21m-4.225-4.225a23.81 23.81 0 0 0 3.536-1.003A8.967 8.967 0 0 1 18 9.75V9A6 6 0 0 0 6.53 6.53m10.245 10.245L6.53 6.53M3 3l3.53 3.53" />
-                        </svg>
-                        <span>Hide warn notifications</span>
-                    </div>
-                    <label class="switch">
-                        <input type="checkbox" id="s-hide-warnings">
-                        <span class="slider round"></span>
-                    </label>
+                    <div class="settings-name"><i class="settings-icon fa-solid fa-bell-slash"></i><span>Hide warn notifications</span></div>
+                    <label class="switch"><input type="checkbox" id="s-hide-warnings"><span class="slider round"></span></label>
                 </div>
             </div>
         </div>
 
-        <div class="warn" id="copy-valid">
-            <svg width="20" height="20" fill="none" viewBox="0 -1 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2c5.523 0 10 4.477 10 10s-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2Zm3.22 6.97-4.47 4.47-1.97-1.97a.75.75 0 0 0-1.06 1.06l2.5 2.5a.75.75 0 0 0 1.06 0l5-5a.75.75 0 1 0-1.06-1.06Z" fill="#2ECC70"/></svg>
-            <a>Copied to the clipboard!</a>
-        </div>
-
-        <div class="warn" id="copy-invalid">
-            <svg width="20" height="20" fill="none" viewBox="0 -1 24 24" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M12 2c5.523 0 10 4.477 10 10s-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2M12 13.202L9.949 15.253A0.55 0.55 0 0 1 9.171 15.253L8.747 14.829A0.55 0.55 0 0 1 8.747 14.051L10.798 12L8.747 9.949A0.55 0.55 0 0 1 8.747 9.171L9.171 8.747A0.55 0.55 0 0 1 9.949 8.747L12 10.798L14.051 8.747A0.55 0.55 0 0 1 14.829 8.747L15.253 9.171A0.55 0.55 0 0 1 15.253 9.949L13.202 12L15.253 14.051A0.55 0.55 0 0 1 15.253 14.829L14.829 15.253A0.55 0.55 0 0 1 14.051 15.253Z" fill="#e74c3c"/></svg>
-            <a>Cannot copy an invalid color!</a>
-        </div>
-
-        <div class="warn" id="file-saved">
-            <svg width="20" height="20" fill="none" viewBox="0 -1 24 24" xmlns="http://www.w3.org/2000/svg"><path d="M12 2c5.523 0 10 4.477 10 10s-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2Zm3.22 6.97-4.47 4.47-1.97-1.97a.75.75 0 0 0-1.06 1.06l2.5 2.5a.75.75 0 0 0 1.06 0l5-5a.75.75 0 1 0-1.06-1.06Z" fill="#2ecc70"/></svg>
-            <a>File saved!</a>
-        </div>
-
-        <div class="warn" id="file-corrupted">
-            <svg width="20" height="20" fill="none" viewBox="0 -1 24 24" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M12 2c5.523 0 10 4.477 10 10s-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2M12 13.202L9.949 15.253A0.55 0.55 0 0 1 9.171 15.253L8.747 14.829A0.55 0.55 0 0 1 8.747 14.051L10.798 12L8.747 9.949A0.55 0.55 0 0 1 8.747 9.171L9.171 8.747A0.55 0.55 0 0 1 9.949 8.747L12 10.798L14.051 8.747A0.55 0.55 0 0 1 14.829 8.747L15.253 9.171A0.55 0.55 0 0 1 15.253 9.949L13.202 12L15.253 14.051A0.55 0.55 0 0 1 15.253 14.829L14.829 15.253A0.55 0.55 0 0 1 14.051 15.253Z" fill="#e74c3c"/></svg>
-            <a>The attached file may be corrupted!</a>
-        </div>
-
-        <div class="warn" id="file-invalid">
-            <svg width="20" height="20" fill="none" viewBox="0 -1 24 24" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M12 2c5.523 0 10 4.477 10 10s-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2M12 13.202L9.949 15.253A0.55 0.55 0 0 1 9.171 15.253L8.747 14.829A0.55 0.55 0 0 1 8.747 14.051L10.798 12L8.747 9.949A0.55 0.55 0 0 1 8.747 9.171L9.171 8.747A0.55 0.55 0 0 1 9.949 8.747L12 10.798L14.051 8.747A0.55 0.55 0 0 1 14.829 8.747L15.253 9.171A0.55 0.55 0 0 1 15.253 9.949L13.202 12L15.253 14.051A0.55 0.55 0 0 1 15.253 14.829L14.829 15.253A0.55 0.55 0 0 1 14.051 15.253Z" fill="#e74c3c"/></svg>
-            <a>Invalid file extension!</a>
-        </div>
-        
-        <div class="warn" id="media-convert-invalid">
-            <svg width="20" height="20" fill="none" viewBox="0 -1 24 24" xmlns="http://www.w3.org/2000/svg"><path fill-rule="evenodd" clip-rule="evenodd" d="M12 2c5.523 0 10 4.477 10 10s-4.477 10-10 10S2 17.523 2 12 6.477 2 12 2M12 13.202L9.949 15.253A0.55 0.55 0 0 1 9.171 15.253L8.747 14.829A0.55 0.55 0 0 1 8.747 14.051L10.798 12L8.747 9.949A0.55 0.55 0 0 1 8.747 9.171L9.171 8.747A0.55 0.55 0 0 1 9.949 8.747L12 10.798L14.051 8.747A0.55 0.55 0 0 1 14.829 8.747L15.253 9.171A0.55 0.55 0 0 1 15.253 9.949L13.202 12L15.253 14.051A0.55 0.55 0 0 1 15.253 14.829L14.829 15.253A0.55 0.55 0 0 1 14.051 15.253Z" fill="#e74c3c"/></svg>
-            <a>Cannot convert to the same file extension!</a>
+        <div class="warn">
+            <a id="copy-valid" class="green">Copied to the clipboard!</a>
+            <a id="copy-invalid" class="yellow">Cannot copy an invalid color!</a>
+            <a id="copy-empty" class="yellow">Nothing to copy!</a>
+            <a id="file-saved" class="green">File saved!</a>
+            <a id="file-corrupted" class="red">The attached file may be corrupted!</a>
+            <a id="file-invalid" class="red">Invalid file extension!</a>
+            <a id="file-name-empty" class="yellow">File name cannot be empty!</a>
+            <a id="file-not-attached" class="yellow">Attach a file before proceeding!</a>
+            <a id="media-convert-invalid" class="red">Cannot convert to the same file extension!</a>
         </div>
     </div>
 
     <div id="loading">
-        <img class="loading-img" src="icon.png"/>
+        <img class="loading-img" src="icons/icon.png"/>
         <div class="loading-bar">
             <div class="loading-bar-fill"></div>
         </div>
     </div>
 
-    <div class="toolbar">
-        <button class="toolbar-button" id="t-fontstyler"></button>
-        <button class="toolbar-button" id="t-colorformat"></button>
-        <button class="toolbar-button" id="t-mediafileconverter"></button>
-        <button class="toolbar-button" id="t-autoclicker"></button>
-        <button class="toolbar-button" id="t-settings"></button>
+    <div class="sidebar">
+        <div class="sidebar-indicator" id="sidebar-indicator"></div>
+        <button class="sidebar-button" id="t-fontstyler">
+            <svg width="17" height="17" viewBox="0 0 17 17" fill="currentColor" stroke="currentColor" stroke-width="0.25">
+                <path d="m6.163 2.355-.016-.004-.812-.264a1.7 1.7 0 0 1-.657-.405 1.7 1.7 0 0 1-.405-.655L4.009.213A.33.33 0 0 0 3.722 0h-.016a.32.32 0 0 0-.302.213l-.264.812a1.67 1.67 0 0 1-1.046 1.06l-.632.205H1.46l-.183.059a.323.323 0 0 0-.155.489.32.32 0 0 0 .155.117l.815.264.088.032.008.004a1.7 1.7 0 0 1 .561.37 1.6 1.6 0 0 1 .405.659l.264.812q.034.096.118.155a.3.3 0 0 0 .183.061h.004a.3.3 0 0 0 .182-.06.32.32 0 0 0 .118-.155l.264-.812a1.67 1.67 0 0 1 1.061-1.06l.812-.264a.321.321 0 0 0 0-.604m8.96-.48a2.784 2.784 0 0 0-3.938 0L8.11 4.949l.533.173c.2.068.356.179.492.305l1.22-1.22 2.437 2.437-6.785 6.785a2.1 2.1 0 0 1-.952.543l-2.728.701.701-2.728c.093-.361.28-.689.543-.952L5.424 9.14a1.3 1.3 0 0 1-.3-.476l-.179-.546-2.124 2.124A3.15 3.15 0 0 0 2 11.681l-.924 3.596a.53.53 0 0 0 .647.647L5.319 15a3.14 3.14 0 0 0 1.439-.82l8.368-8.366a2.784 2.784 0 0 0 0-3.938zm-.751 3.188-.828.828-2.437-2.437.828-.828a1.723 1.723 0 0 1 2.437 2.437"/>
+                <path d="m8.318 6.131-.65-.211v.002a1.34 1.34 0 0 1-.849-.849l-.211-.65a.255.255 0 0 0-.242-.171.255.255 0 0 0-.242.171l-.211.65a1.35 1.35 0 0 1-.837.848l-.65.211a.25.25 0 0 0-.125.094.257.257 0 0 0 .125.391l.619.2v.004l.025.009a1.34 1.34 0 0 1 .85.85l.212.65a.255.255 0 0 0 .238.171h.008a.255.255 0 0 0 .242-.171l.211-.65a1.34 1.34 0 0 1 .849-.849l.65-.211a.25.25 0 0 0 .125-.094.257.257 0 0 0-.125-.391z"/>
+            </svg>
+        </button>
+        <button class="sidebar-button" id="t-colorformat">
+            <svg width="17" height="17" viewBox="0 0 17 17" fill="currentColor" stroke="currentColor" stroke-width="0.25">
+                <path d="M8.501 1.063c-4.109 0-7.438 2.975-7.438 7.084a2.476 2.476 0 0 0 2.479 2.478c1.506 0 1.474-1.062 2.833-1.062.684 0 1.063.644 1.063 1.328v1.328a3.72 3.72 0 0 0 3.719 3.719c3.35 0 4.78-4.022 4.78-7.438A7.44 7.44 0 0 0 8.5 1.063zm2.655 13.812A2.66 2.66 0 0 1 8.5 12.219v-1.328C8.5 9.527 7.586 8.5 6.375 8.5c-1.02 0-1.596.438-1.977.728-.303.231-.441.335-.855.335a1.42 1.42 0 0 1-1.416-1.416c-.001-3.434 2.739-6.022 6.374-6.022A6.38 6.38 0 0 1 14.875 8.5c0 2.563-.99 6.375-3.718 6.375zm1.594-3.188a1.063 1.063 0 1 1-2.125 0 1.063 1.063 0 0 1 2.125 0m1.063-3.188a1.063 1.063 0 1 1-2.125 0 1.063 1.063 0 0 1 2.125 0M6.375 5.313a1.063 1.063 0 1 1-2.125 0 1.063 1.063 0 0 1 2.125 0m4.25 0a1.063 1.063 0 1 1 2.125 0 1.063 1.063 0 0 1-2.125 0M9.563 4.25a1.063 1.063 0 1 1-2.125 0 1.063 1.063 0 0 1 2.125 0"/>
+            </svg>
+        </button>
+        <button class="sidebar-button" id="t-mediafileconverter">
+            <svg width="17" height="17" viewBox="0 0 17 17" fill="currentColor" stroke="currentColor" stroke-width="0.25">
+                <path d="M14.875 3.719v3.188a.526.526 0 0 1-.531.531h-3.188c-.298 0-.531-.234-.531-.531s.234-.531.531-.531h2.21A5.28 5.28 0 0 0 8.5 3.188c-2.359 0-4.463 1.594-5.111 3.868a.52.52 0 0 1-.51.383c-.053 0-.096 0-.149-.021a.524.524 0 0 1-.361-.659A6.395 6.395 0 0 1 8.5 2.125a6.32 6.32 0 0 1 5.313 2.858V3.719c0-.298.234-.531.531-.531s.531.234.531.531m-.616 5.865a.54.54 0 0 0-.659.372 5.334 5.334 0 0 1-5.111 3.868 5.28 5.28 0 0 1-4.866-3.188h2.21c.298 0 .531-.234.531-.531s-.234-.531-.531-.531H2.645a.526.526 0 0 0-.531.531v3.188c0 .298.234.531.531.531s.531-.234.531-.531v-1.264a6.34 6.34 0 0 0 5.313 2.858 6.395 6.395 0 0 0 6.131-4.633.53.53 0 0 0-.372-.659z"/>
+            </svg>
+        </button>
+        <button class="sidebar-button" id="t-autoclicker">
+            <svg width="17" height="17" viewBox="0 0 17 17" fill="currentColor" stroke="currentColor" stroke-width="0.25">
+                <path d="M14.876 8.5c0 .576-.311 1.108-.813 1.39l-5.588 3.143a4.7 4.7 0 0 0-.199-1.107l5.265-2.961a.532.532 0 0 0 0-.929l-8.5-4.781a.53.53 0 0 0-.791.464v4.868c-.177-.019-.352-.051-.531-.051s-.354.038-.531.057V3.719a1.596 1.596 0 0 1 2.374-1.391l8.501 4.782c.501.282.813.815.813 1.39M3.719 9.599a3.8 3.8 0 0 0-2.63 1.053l-.026.027v-.587a.531.531 0 1 0-1.063 0v2.125a.53.53 0 0 0 .531.531h2.125a.531.531 0 1 0 0-1.063H1.593q.113-.151.247-.284a2.72 2.72 0 0 1 3.757 0 2.66 2.66 0 0 1 .778 1.88 2.66 2.66 0 0 1-.778 1.879 2.725 2.725 0 0 1-3.757 0 .532.532 0 0 0-.751.751 3.721 3.721 0 0 0 6.349-2.63c0-.986-.392-1.933-1.089-2.63a3.83 3.83 0 0 0-2.63-1.052"/>
+            </svg>
+        </button>
+        <button class="sidebar-button" id="t-settings">
+            <svg width="17" height="17" viewBox="0 0 17 17" fill="currentColor" stroke="currentColor" stroke-width="0.25">
+                <path d="M8.5 6.375a2.125 2.125 0 1 0 0 4.25 2.125 2.125 0 1 0 0-4.25m0 3.188a1.063 1.063 0 1 1 .001-2.126A1.063 1.063 0 0 1 8.5 9.563m6.975.76-1.367-1.155a.87.87 0 0 1 0-1.335l1.367-1.155a.44.44 0 0 0 .134-.469 7.4 7.4 0 0 0-1.565-2.695.44.44 0 0 0-.473-.119l-1.686.6a1 1 0 0 1-.296.052.88.88 0 0 1-.864-.718l-.322-1.755a.44.44 0 0 0-.341-.35 7.5 7.5 0 0 0-3.123 0 .44.44 0 0 0-.341.35l-.321 1.755a.88.88 0 0 1-1.16.667l-1.686-.6a.45.45 0 0 0-.474.119 7.4 7.4 0 0 0-1.565 2.696.44.44 0 0 0 .134.469l1.366 1.155q.054.047.101.101a.87.87 0 0 1-.101 1.234l-1.366 1.154a.44.44 0 0 0-.134.469 7.4 7.4 0 0 0 1.565 2.693.44.44 0 0 0 .474.119l1.686-.6a1 1 0 0 1 .296-.051c.417 0 .786.295.864.718l.321 1.755a.44.44 0 0 0 .341.35 7.5 7.5 0 0 0 3.123 0 .44.44 0 0 0 .341-.35l.322-1.755q.013-.07.037-.137a.88.88 0 0 1 1.123-.53l1.685.6q.074.026.148.026a.45.45 0 0 0 .326-.145 7.4 7.4 0 0 0 1.564-2.695.44.44 0 0 0-.134-.469zm-1.952 2.137-1.282-.457A1.944 1.944 0 0 0 9.68 13.48l-.244 1.329a6.5 6.5 0 0 1-1.871-.001l-.243-1.329a1.94 1.94 0 0 0-2.562-1.477l-1.282.456a6.4 6.4 0 0 1-.934-1.605l1.035-.874c.396-.335.637-.804.68-1.321a1.9 1.9 0 0 0-.457-1.413 2 2 0 0 0-.223-.223l-1.035-.873a6.4 6.4 0 0 1 .934-1.604l1.282.457q.317.112.652.113a1.944 1.944 0 0 0 1.909-1.589l.243-1.329a6.6 6.6 0 0 1 1.871-.001l.243 1.329a1.94 1.94 0 0 0 2.562 1.477l1.282-.457q.588.735.934 1.605l-1.034.874a1.9 1.9 0 0 0-.68 1.321 1.91 1.91 0 0 0 .681 1.636l1.034.874a6.4 6.4 0 0 1-.934 1.605"/>
+            </svg>
+        </button>
     </div>
 
     <script src="app.js"></script>

@@ -1,9 +1,3 @@
-/*
-   ╭─────────────────────────────╮
-   │        FONT STYLER          │
-   ╰─────────────────────────────╯
-*/
-
 const appLaunchTime = Date.now();
 
 const transforms = {
@@ -47,11 +41,6 @@ function transformMap(text, alphabetFrom, alphabetTo) {
     }).join('');
 }
 
-/*
-   ╭─────────────────────────────╮
-   │      COLOR MATH HELPERS     │
-   ╰─────────────────────────────╯
-*/
 
 function clamp(n, min, max) { return Math.min(Math.max(n, min), max); }
 function toHex(n) { return clamp(Math.round(n), 0, 255).toString(16).padStart(2, '0'); }
@@ -276,66 +265,61 @@ function nearestNamedColor(r, g, b) {
 function parsePercentOr255(v) { return v.endsWith('%') ? (parseFloat(v) / 100) * 255 : parseFloat(v); }
 function parseAlpha(v) { return v.endsWith('%') ? parseFloat(v) / 100 : parseFloat(v); }
 
-/*
-   ╭─────────────────────────────╮
-   │        COLOR DETECTION      │
-   ╰─────────────────────────────╯
-*/
 
 const colorParsers = [
-    { // rgb / rgba (also matches % variants, comma or space separated)
+    {
         re: /^rgba?\(\s*([\d.]+%?)\s*[, ]\s*([\d.]+%?)\s*[, ]\s*([\d.]+%?)\s*(?:[,/]\s*([\d.]+%?)\s*)?\)$/i,
         parse: (m) => ({ r: parsePercentOr255(m[1]), g: parsePercentOr255(m[2]), b: parsePercentOr255(m[3]), a: m[4] !== undefined ? parseAlpha(m[4]) : 1 })
     },
-    { // hsl / hsla
+    {
         re: /^hsla?\(\s*([\d.]+)(?:deg)?\s*[, ]\s*([\d.]+)%\s*[, ]\s*([\d.]+)%\s*(?:[,/]\s*([\d.]+%?)\s*)?\)$/i,
         parse: (m) => { const c = hslToRgb(parseFloat(m[1]), parseFloat(m[2]), parseFloat(m[3])); return { ...c, a: m[4] !== undefined ? parseAlpha(m[4]) : 1 }; }
     },
-    { // hsv / hsb
+    {
         re: /^hs[vb]\(\s*([\d.]+)(?:deg)?\s*[, ]\s*([\d.]+)%\s*[, ]\s*([\d.]+)%\s*(?:[,/]\s*([\d.]+%?)\s*)?\)$/i,
         parse: (m) => { const c = hsvToRgb(parseFloat(m[1]), parseFloat(m[2]), parseFloat(m[3])); return { ...c, a: m[4] !== undefined ? parseAlpha(m[4]) : 1 }; }
     },
-    { // cmyk
+    {
         re: /^cmyk\(\s*([\d.]+)%?\s*[, ]\s*([\d.]+)%?\s*[, ]\s*([\d.]+)%?\s*[, ]\s*([\d.]+)%?\s*\)$/i,
         parse: (m) => cmykToRgb(parseFloat(m[1]), parseFloat(m[2]), parseFloat(m[3]), parseFloat(m[4]))
     },
-    { // oklch
+    {
         re: /^oklch\(\s*([\d.]+)%?\s+([\d.]+)\s+([\d.]+)(?:deg)?\s*(?:\/\s*([\d.]+%?)\s*)?\)$/i,
         parse: (m) => { const c = oklchToRgb(parseFloat(m[1]) / 100, parseFloat(m[2]), parseFloat(m[3])); return { ...c, a: m[4] !== undefined ? parseAlpha(m[4]) : 1 }; }
     },
-    { // oklab
+    {
         re: /^oklab\(\s*([\d.]+)%?\s+(-?[\d.]+)\s+(-?[\d.]+)\s*(?:\/\s*([\d.]+%?)\s*)?\)$/i,
         parse: (m) => { const c = oklabToRgb(parseFloat(m[1]) / 100, parseFloat(m[2]), parseFloat(m[3])); return { ...c, a: m[4] !== undefined ? parseAlpha(m[4]) : 1 }; }
     },
-    { // lch (CIE)
+    {
         re: /^lch\(\s*([\d.]+)%?\s+([\d.]+)\s+([\d.]+)(?:deg)?\s*(?:\/\s*([\d.]+%?)\s*)?\)$/i,
         parse: (m) => { const c = lchToRgb(parseFloat(m[1]), parseFloat(m[2]), parseFloat(m[3])); return { ...c, a: m[4] !== undefined ? parseAlpha(m[4]) : 1 }; }
     },
-    { // Swift UIColor
+    {
         re: /UIColor\(\s*red:\s*([\d.]+),?\s*green:\s*([\d.]+),?\s*blue:\s*([\d.]+)(?:,?\s*alpha:\s*([\d.]+))?\s*\)/i,
         parse: (m) => ({ r: parseFloat(m[1]) * 255, g: parseFloat(m[2]) * 255, b: parseFloat(m[3]) * 255, a: m[4] !== undefined ? parseFloat(m[4]) : 1 })
     },
-    { // Flutter Color(0xAARRGGBB) or bare 0xAARRGGBB (Android)
+    {
         re: /(?:Color\(\s*0x|0x)([0-9a-f]{8})\)?/i,
         parse: (m) => { const h = m[1]; return { r: parseInt(h.slice(2, 4), 16), g: parseInt(h.slice(4, 6), 16), b: parseInt(h.slice(6, 8), 16), a: parseInt(h.slice(0, 2), 16) / 255 }; }
     },
-    { // Android Color.parseColor("#...")
+    {
         re: /Color\.parseColor\(\s*"(#?[0-9a-f]{3,8})"\s*\)/i,
         parse: (m) => hexToRgba(m[1])
     },
-    { // hex with #
+    {
         re: /^#([0-9a-f]{3,8})$/i,
         parse: (m) => hexToRgba(m[1])
     },
-    { // named color
+    {
         re: /^[a-z]+$/i,
         parse: (m, raw) => { const hex = namedColors[raw.toLowerCase()]; return hex ? hexToRgba(hex) : null; }
     },
-    { // bare comma/space separated numbers
+    {
         re: /^([\d.]+%?)[\s,]+([\d.]+%?)[\s,]+([\d.]+%?)(?:[\s,]+([\d.]+%?))?$/,
         parse: (m) => ({ r: parsePercentOr255(m[1]), g: parsePercentOr255(m[2]), b: parsePercentOr255(m[3]), a: m[4] !== undefined ? parseAlpha(m[4]) : 1 })
     },
-    { // bare hex without #
+    {
         re: /^([0-9a-f]{3}|[0-9a-f]{4}|[0-9a-f]{6}|[0-9a-f]{8})$/i,
         parse: (m) => hexToRgba(m[1])
     }
@@ -361,64 +345,59 @@ function parseColor(raw) {
     return null;
 }
 
-/*
-   ╭─────────────────────────────╮
-   │       COLOR FORMATTING      │
-   ╰─────────────────────────────╯
-*/
 
 function formatColor({ r, g, b, a }, option) {
     switch (option) {
-        case 'option1': // HEX
+        case 'option1':
             return `#${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
-        case 'option2': // HEX Shorthand (closest representable value per channel)
+        case 'option2':
             return `#${toShorthandDigit(r)}${toShorthandDigit(g)}${toShorthandDigit(b)}`.toUpperCase();
-        case 'option3': // HEX8
+        case 'option3':
             return `#${toHex(r)}${toHex(g)}${toHex(b)}${toHex(Math.round(a * 255))}`.toUpperCase();
-        case 'option4': // HEX8 Shorthand (closest representable value per channel, including alpha)
+        case 'option4':
             return `#${toShorthandDigit(r)}${toShorthandDigit(g)}${toShorthandDigit(b)}${toShorthandDigit(a * 255)}`.toUpperCase();
-        case 'option5': // RGB
+        case 'option5':
             return `rgb(${r}, ${g}, ${b})`;
-        case 'option6': { // RGB %
+        case 'option6': {
             const pr = Math.round((r / 255) * 100), pg = Math.round((g / 255) * 100), pb = Math.round((b / 255) * 100);
             return `rgb(${pr}%, ${pg}%, ${pb}%)`;
         }
-        case 'option7': // RGBA
+        case 'option7':
             return `rgba(${r}, ${g}, ${b}, ${trimNum(a)})`;
-        case 'option8': { // RGBA %
+        case 'option8': {
             const pr = Math.round((r / 255) * 100), pg = Math.round((g / 255) * 100), pb = Math.round((b / 255) * 100);
             return `rgba(${pr}%, ${pg}%, ${pb}%, ${trimNum(a)})`;
         }
-        case 'option9': { // HSL
+        case 'option9': {
             const { h, s, l } = rgbToHsl(r, g, b);
             return `hsl(${h}, ${s}%, ${l}%)`;
         }
-        case 'option10': { // HSLA
+        case 'option10': {
             const { h, s, l } = rgbToHsl(r, g, b);
             return `hsla(${h}, ${s}%, ${l}%, ${trimNum(a)})`;
         }
-        case 'option11': { // HSV
+        case 'option11': {
             const { h, s, v } = rgbToHsv(r, g, b);
             return `hsv(${h}, ${s}%, ${v}%)`;
         }
-        case 'option12': { // CMYK
+        case 'option12': {
             const { c, m, y, k } = rgbToCmyk(r, g, b);
             return `cmyk(${c}%, ${m}%, ${y}%, ${k}%)`;
         }
-        case 'option13': // CSS Named Color
+        case 'option13':
             return nearestNamedColor(r, g, b);
-        case 'option14': // Swift
+        case 'option14':
             return `UIColor(red: ${(r / 255).toFixed(3)}, green: ${(g / 255).toFixed(3)}, blue: ${(b / 255).toFixed(3)}, alpha: ${a.toFixed(3)})`;
-        case 'option15': // Android
+        case 'option15':
             return `0x${toHex(Math.round(a * 255))}${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase();
-        case 'option16': // Flutter
+        case 'option16':
             return `Color(0x${toHex(Math.round(a * 255))}${toHex(r)}${toHex(g)}${toHex(b)}`.toUpperCase() + ')';
-        case 'option17': { // OKLCH
+        case 'option17': {
             const { L, C, H } = rgbToOklch(r, g, b);
             const Lp = (L * 100).toFixed(2);
             return a < 1 ? `oklch(${Lp}% ${C} ${H} / ${trimNum(a)})` : `oklch(${Lp}% ${C} ${H})`;
         }
-        case 'option18': { // LCH (CIE)
+        case 'option18': {
             const { L, C, H } = rgbToLch(r, g, b);
             const Lp = L.toFixed(2);
             return a < 1 ? `lch(${Lp}% ${C} ${H} / ${trimNum(a)})` : `lch(${Lp}% ${C} ${H})`;
@@ -429,56 +408,60 @@ function formatColor({ r, g, b, a }, option) {
 }
 
 const ALPHA_AWARE_FORMATS = new Set([
-    'option3', 'option4', // HEX8, HEX8 Shorthand
-    'option7', 'option8', // RGBA, RGBA %
-    'option10',           // HSLA
-    'option14',           // Swift (UIColor alpha:)
-    'option15', 'option16', // Android, Flutter (0xAARRGGBB)
-    'option17', 'option18'  // OKLCH, LCH (alpha component when < 1)
+    'option3', 'option4',
+    'option7', 'option8',
+    'option10',
+    'option14',
+    'option15', 'option16',
+    'option17', 'option18'
 ]);
 
-/*
-   ╭─────────────────────────────╮
-   │      COPY / TOAST LOGIC     │
-   ╰─────────────────────────────╯
-*/
 
-const copyValidWarn = document.querySelector('#copy-valid.warn');
-const copyInvalidWarn = document.querySelector('#copy-invalid.warn');
-const fileSavedWarn = document.querySelector('#file-saved.warn');
-const fileCorruptedWarn = document.querySelector('#file-corrupted.warn');
-const fileInvalidWarn = document.querySelector('#file-invalid.warn');
-const mediaConvertInvalidWarn = document.querySelector('#media-convert-invalid.warn');
+const warnBox = document.querySelector('.warn');
+const warnItems = new Map();
 
-function handleWarnAnimationEnd(e) {
+warnBox.querySelectorAll('a[id]').forEach((el) => {
+    el.dataset.defaultText = el.textContent;
+    warnItems.set(el.id, el);
+});
+
+warnBox.addEventListener('animationend', (e) => {
     if (e.animationName === 'warn-out') {
-        e.currentTarget.classList.remove('show', 'hide');
+        warnBox.classList.remove('show', 'hide');
     }
-}
+});
 
-copyValidWarn.addEventListener('animationend', handleWarnAnimationEnd);
-copyInvalidWarn.addEventListener('animationend', handleWarnAnimationEnd);
-fileSavedWarn.addEventListener('animationend', handleWarnAnimationEnd);
-fileCorruptedWarn.addEventListener('animationend', handleWarnAnimationEnd);
-fileInvalidWarn.addEventListener('animationend', handleWarnAnimationEnd);
-mediaConvertInvalidWarn.addEventListener('animationend', handleWarnAnimationEnd);
-
-function triggerWarn(warnElement) {
+function triggerWarn(id, message) {
     if (appSettings.hideWarnNotifications) return;
 
-    warnElement.classList.remove('show', 'hide');
-    void warnElement.offsetWidth;
-    warnElement.classList.add('show');
+    const activeEl = warnItems.get(id);
+    if (!activeEl) return;
 
-    clearTimeout(warnElement.warnTimeout);
-    warnElement.warnTimeout = setTimeout(() => {
-        warnElement.classList.remove('show');
-        warnElement.classList.add('hide');
+    let text = activeEl.dataset.defaultText;
+    if (message) {
+        const custom = String(message);
+        text = custom.length > 140 ? `${custom.slice(0, 140)}…` : custom;
+    }
+    activeEl.textContent = text;
+
+    warnItems.forEach((el) => el.classList.toggle('active', el === activeEl));
+
+    warnBox.classList.remove('show', 'hide');
+    void warnBox.offsetWidth;
+    warnBox.classList.add('show');
+
+    clearTimeout(warnBox.warnTimeout);
+    warnBox.warnTimeout = setTimeout(() => {
+        warnBox.classList.remove('show');
+        warnBox.classList.add('hide');
     }, 2800);
 }
 
 async function doCopyValid(text) {
-    if (!text) return;
+    if (!text) {
+        triggerWarn('copy-empty');
+        return;
+    }
     try {
         await navigator.clipboard.writeText(text);
     } catch (err) {
@@ -490,43 +473,37 @@ async function doCopyValid(text) {
         document.body.removeChild(textArea);
     }
 
-    triggerWarn(copyValidWarn);
+    triggerWarn('copy-valid');
 }
 
 function doCopyInvalid() {
-    triggerWarn(copyInvalidWarn);
+    triggerWarn('copy-invalid');
 }
 
 function doFileInvalid() {
-    triggerWarn(fileInvalidWarn);
+    triggerWarn('file-invalid');
 }
 
 function doFileSaved() {
-    triggerWarn(fileSavedWarn);
+    triggerWarn('file-saved');
 }
 
-const fileCorruptedLabel = fileCorruptedWarn.querySelector('a');
-const fileCorruptedDefaultText = fileCorruptedLabel.textContent;
-
 function doFileCorrupted(message) {
-    if (message) {
-        const text = String(message);
-        fileCorruptedLabel.textContent = text.length > 140 ? `${text.slice(0, 140)}…` : text;
-    } else {
-        fileCorruptedLabel.textContent = fileCorruptedDefaultText;
-    }
-    triggerWarn(fileCorruptedWarn);
+    triggerWarn('file-corrupted', message);
 }
 
 function doMediaConvertInvalid() {
-    triggerWarn(mediaConvertInvalidWarn);
+    triggerWarn('media-convert-invalid');
 }
 
-/*
-   ╭─────────────────────────────╮
-   │      PERSISTENT SETTINGS    │
-   ╰─────────────────────────────╯
-*/
+function doFileNameEmpty() {
+    triggerWarn('file-name-empty');
+}
+
+function doFileNotAttached() {
+    triggerWarn('file-not-attached');
+}
+
 
 const SETTINGS_KEY = 'ftools:media-converter-settings';
 
@@ -578,11 +555,6 @@ let appSettings = {
     highContrast: false
 };
 
-/*
-   ╭─────────────────────────────╮
-   │        PANEL WIRING         │
-   ╰─────────────────────────────╯
-*/
 
 function setupFontStyler() {
     const panel = document.getElementById('fontstyler');
@@ -606,78 +578,198 @@ function setupFontStyler() {
     copyButton.addEventListener('click', () => doCopyValid(outputDiv.textContent));
 }
 
-/*
-   ╭─────────────────────────────╮
-   │      COLOR PICKER SYNC      │
-   ╰─────────────────────────────╯
-   These reach into the picker iframe's DOM/CSS custom properties from
-   the outside instead of touching the widget's own files. --hue/--light/
-   --dark/--alpha are read reactively by --base-hsl/--clr-dark/--clr-final
-   in the widget's own :root rule, so setting those four is enough; no
-   need to also poke --base-hsl etc by hand.
 
-   --sat is intentionally left alone at its native 100%. The box's
-   rainbow-to-white background is a static image that only ever depicts
-   fully saturated hues, it has no idea what --sat is. Forcing --sat down
-   for greys/pastels made the handle sit on a spot the box renders as a
-   vivid hue while the actual color underneath silently went grey, which
-   is the "top grey, bottom white" mismatch.
+const pickerBox = document.getElementById('picker-box');
+const pickerHandle = document.getElementById('picker-handle');
+const pickerDarkness = document.getElementById('darkness');
+const pickerTransparency = document.getElementById('transparency');
+const pickerPreview = document.querySelector('#colorpicker .color-preview');
 
-   Now that colorpicker.html mixes real RGB (color-mix) instead of
-   recomputing HSL, this box+darkness pair is exactly HSV in disguise:
-   the box picks a hue tinted with white (HSV's S axis) and darkness
-   mixes that toward black (HSV's V axis). That means any color,
-   including true greys, is exactly reachable, no approximation needed,
-   converting to HSV and mapping S -> light, V -> dark directly reproduces
-   the input pixel for pixel. h stays HSV's own hue (same value HSL would
-   give here since they share hue).
-*/
+let pickerPosXPct = 0;
+let pickerPosYPct = 0;
 
-function syncPickerFromColor(frame, rgba) {
-    const idoc = frame?.contentDocument;
-    const iroot = idoc?.documentElement;
-    const handle = idoc?.getElementById('picker-handle');
-    const darkness = idoc?.getElementById('darkness');
-    const transparency = idoc?.getElementById('transparency');
-    const box = idoc?.getElementById('picker-box');
-    const preview = idoc?.querySelector('.color-preview');
-    if (!iroot || !handle || !darkness || !transparency || !box || !preview) return;
+function updatePickerPreview(hue, lightness) {
+    const darkValue = parseFloat(pickerDarkness.value) / 100;
+    const alphaValue = 1 - parseFloat(pickerTransparency.value) / 100;
+    const baseHsl = `hsl(${hue}, 100%, ${lightness}%)`;
+    const darkMix = `color-mix(in srgb, ${baseHsl} ${(1 - darkValue) * 100}%, black ${darkValue * 100}%)`;
+    const finalColor = `color-mix(in srgb, ${darkMix} ${alphaValue * 100}%, transparent ${(1 - alphaValue) * 100}%)`;
+    pickerPreview.style.backgroundColor = finalColor;
+    pickerDarkness.style.background = `linear-gradient(${baseHsl}, #0000)`;
+    pickerTransparency.style.background = `linear-gradient(${darkMix}, #0000)`;
+}
 
+function pickerCurrentHue() {
+    return (pickerPosXPct / 100) * 360;
+}
+
+function pickerCurrentLightness() {
+    return 50 + (pickerPosYPct / 100) * 50;
+}
+
+function applyPickerPosition(xPct, yPct) {
+    pickerPosXPct = Math.max(0, Math.min(xPct, 100));
+    pickerPosYPct = Math.max(0, Math.min(yPct, 100));
+    renderPicker();
+}
+
+function renderPicker() {
+    const rect = pickerBox.getBoundingClientRect();
+    const xPx = Math.round((pickerPosXPct / 100) * rect.width);
+    const yPx = Math.round((pickerPosYPct / 100) * rect.height);
+
+    pickerHandle.style.transform = `translate(${xPx - 5}px, ${yPx - 5}px)`;
+
+    const hue = (pickerPosXPct / 100) * 360;
+    const lightness = 50 + (pickerPosYPct / 100) * 50;
+
+    pickerHandle.style.borderColor = pickerPosYPct > 50 ? '#000' : '#fff';
+
+    document.documentElement.style.setProperty('--hue', hue);
+    document.documentElement.style.setProperty('--light', lightness + '%');
+    updatePickerPreview(hue, lightness);
+}
+
+applyPickerPosition(0, 0);
+
+new ResizeObserver(() => renderPicker()).observe(pickerBox);
+
+function updatePickerFromEvent(e) {
+    const rect = pickerBox.getBoundingClientRect();
+    const x = Math.max(0, Math.min(e.clientX - rect.left, rect.width));
+    const y = Math.max(0, Math.min(e.clientY - rect.top, rect.height));
+    applyPickerPosition((x / rect.width) * 100, (y / rect.height) * 100);
+}
+
+let pickerIsDragging = false;
+pickerBox.addEventListener('mousedown', (e) => {
+    pickerIsDragging = true;
+    pickerBox.style.cursor = 'none';
+    updatePickerFromEvent(e);
+});
+window.addEventListener('mousemove', (e) => { if (pickerIsDragging) updatePickerFromEvent(e); });
+window.addEventListener('mouseup', () => {
+    if (pickerIsDragging) {
+        pickerIsDragging = false;
+        pickerBox.style.cursor = 'default';
+    }
+});
+
+const PICKER_BOX_SLOW_PX = 0.1;
+const PICKER_BOX_FAST_PX = 1;
+const PICKER_BOX_TICK_MS = 10;
+const PICKER_BOX_FAST_AFTER_MS = 900;
+
+const PICKER_BOX_KEY_DELTAS = {
+    ArrowLeft: { dx: -1, dy: 0 },
+    ArrowRight: { dx: 1, dy: 0 },
+    ArrowUp: { dx: 0, dy: -1 },
+    ArrowDown: { dx: 0, dy: 1 },
+};
+
+const pressedPickerBoxKeys = new Set();
+let pickerBoxMoveInterval = null;
+let pickerBoxHoldStart = 0;
+
+function pickerBoxMoveTick() {
+    let dx = 0, dy = 0;
+    pressedPickerBoxKeys.forEach((key) => {
+        dx += PICKER_BOX_KEY_DELTAS[key].dx;
+        dy += PICKER_BOX_KEY_DELTAS[key].dy;
+    });
+    if (dx === 0 && dy === 0) return;
+
+    const elapsed = performance.now() - pickerBoxHoldStart;
+    const speedPx = elapsed >= PICKER_BOX_FAST_AFTER_MS ? PICKER_BOX_FAST_PX : PICKER_BOX_SLOW_PX;
+
+    const rect = pickerBox.getBoundingClientRect();
+    const xPct = pickerPosXPct + (dx * speedPx / rect.width) * 100;
+    const yPct = pickerPosYPct + (dy * speedPx / rect.height) * 100;
+    applyPickerPosition(xPct, yPct);
+}
+
+function stopPickerBoxKey(key) {
+    pressedPickerBoxKeys.delete(key);
+    if (pressedPickerBoxKeys.size === 0 && pickerBoxMoveInterval) {
+        clearInterval(pickerBoxMoveInterval);
+        pickerBoxMoveInterval = null;
+    }
+}
+
+pickerBox.addEventListener('keydown', (e) => {
+    if (!(e.key in PICKER_BOX_KEY_DELTAS)) return;
+    e.preventDefault();
+    if (pressedPickerBoxKeys.has(e.key)) return;
+    pressedPickerBoxKeys.add(e.key);
+    if (!pickerBoxMoveInterval) {
+        pickerBoxHoldStart = performance.now();
+        pickerBoxMoveTick();
+        pickerBoxMoveInterval = setInterval(pickerBoxMoveTick, PICKER_BOX_TICK_MS);
+    }
+});
+
+pickerBox.addEventListener('keyup', (e) => {
+    if (e.key in PICKER_BOX_KEY_DELTAS) stopPickerBoxKey(e.key);
+});
+
+pickerBox.addEventListener('blur', () => {
+    pressedPickerBoxKeys.clear();
+    if (pickerBoxMoveInterval) {
+        clearInterval(pickerBoxMoveInterval);
+        pickerBoxMoveInterval = null;
+    }
+});
+
+pickerDarkness.addEventListener('input', (e) => {
+    const darkValue = e.target.value / 100;
+    document.documentElement.style.setProperty('--dark', darkValue);
+    updatePickerPreview(pickerCurrentHue(), pickerCurrentLightness());
+});
+
+pickerTransparency.addEventListener('input', (e) => {
+    const alphaValue = 1 - (e.target.value / 100);
+    document.documentElement.style.setProperty('--alpha', alphaValue);
+    updatePickerPreview(pickerCurrentHue(), pickerCurrentLightness());
+});
+
+function stepPickerRange(input, delta) {
+    const min = parseFloat(input.min) || 0;
+    const max = parseFloat(input.max) || 100;
+    const step = parseFloat(input.step) || 1;
+    const value = Math.max(min, Math.min(max, parseFloat(input.value) + delta * step));
+    input.value = value;
+    input.dispatchEvent(new Event('input', { bubbles: true }));
+}
+
+[pickerDarkness, pickerTransparency].forEach((input) => {
+    input.addEventListener('keydown', (e) => {
+        let delta = 0;
+        if (e.key === 'ArrowDown' || e.key === 'ArrowRight') delta = 1;
+        else if (e.key === 'ArrowUp' || e.key === 'ArrowLeft') delta = -1;
+        else return;
+        e.preventDefault();
+        stepPickerRange(input, delta);
+    });
+});
+
+function syncPickerFromColor(rgba) {
     const { h, s, v } = rgbToHsv(rgba.r, rgba.g, rgba.b);
     const light = 100 - (s / 2);
     const dark = 1 - (v / 100);
 
-    iroot.style.setProperty('--hue', h);
-    iroot.style.setProperty('--sat', '100%');
-    iroot.style.setProperty('--light', `${light}%`);
-    iroot.style.setProperty('--dark', dark);
-    iroot.style.setProperty('--alpha', rgba.a);
+    document.documentElement.style.setProperty('--hue', h);
+    document.documentElement.style.setProperty('--sat', '100%');
+    document.documentElement.style.setProperty('--light', `${light}%`);
+    document.documentElement.style.setProperty('--dark', dark);
+    document.documentElement.style.setProperty('--alpha', rgba.a);
 
     const xPct = (h / 360) * 100;
     const yPct = ((light - 50) / 50) * 100;
-    handle.style.left = `${xPct}%`;
-    handle.style.top = `${yPct}%`;
-    handle.style.borderColor = yPct > 50 ? '#000' : '#fff';
+    applyPickerPosition(xPct, yPct);
 
-    darkness.value = Math.round(dark * 100);
-    transparency.value = Math.round((1 - rgba.a) * 100);
+    pickerDarkness.value = Math.round(dark * 100);
+    pickerTransparency.value = Math.round((1 - rgba.a) * 100);
 
-    // Setting --hue/--light/--dark/--alpha above should be enough on its
-    // own, the widget's own :root rule reactively recomputes --base-hsl/
-    // --clr-dark/--clr-final from them. In practice, Chromium sometimes
-    // just doesn't repaint elements driven by those custom properties
-    // when they only changed via an ancestor's inline style, they keep
-    // showing whatever color was there before, until something else
-    // forces a style recalc (which is exactly why dragging always fixed
-    // it manually). A plain forced reflow wasn't reliable enough to fix
-    // this for every color, so instead of hoping the browser catches up,
-    // the exact resulting colors are computed here in JS (mirroring the
-    // widget's own color-mix math) and set directly as inline overrides,
-    // guaranteed correct regardless of any repaint quirk. The moment the
-    // user actually drags the box or either slider, those overrides get
-    // cleared so the widget's own reactive CSS takes back over for live
-    // interaction, exactly as it already did before any of this syncing
-    // existed.
     const baseRgb = hslToRgb(h, 100, light);
     const darkRgb = {
         r: baseRgb.r * (1 - dark),
@@ -688,37 +780,26 @@ function syncPickerFromColor(frame, rgba) {
     const darkCss = `rgb(${Math.round(darkRgb.r)}, ${Math.round(darkRgb.g)}, ${Math.round(darkRgb.b)})`;
     const finalCss = `rgba(${Math.round(darkRgb.r)}, ${Math.round(darkRgb.g)}, ${Math.round(darkRgb.b)}, ${rgba.a})`;
 
-    preview.style.background = finalCss;
-    darkness.style.background = `linear-gradient(${baseCss}, transparent)`;
-    transparency.style.background = `linear-gradient(${darkCss}, transparent)`;
+    pickerPreview.style.background = finalCss;
+    pickerDarkness.style.background = `linear-gradient(${baseCss}, transparent)`;
+    pickerTransparency.style.background = `linear-gradient(${darkCss}, transparent)`;
 
-    if (!box.dataset.syncReleaseBound) {
+    if (!pickerBox.dataset.syncReleaseBound) {
         const release = () => {
-            preview.style.background = '';
-            darkness.style.background = '';
-            transparency.style.background = '';
+            pickerPreview.style.background = '';
+            pickerDarkness.style.background = '';
+            pickerTransparency.style.background = '';
         };
-        box.addEventListener('mousedown', release);
-        darkness.addEventListener('input', release);
-        transparency.addEventListener('input', release);
-        box.dataset.syncReleaseBound = '1';
+        pickerBox.addEventListener('mousedown', release);
+        pickerDarkness.addEventListener('input', release);
+        pickerTransparency.addEventListener('input', release);
+        pickerBox.dataset.syncReleaseBound = '1';
     }
 }
 
-function readPickerColor(frame) {
-    const idoc = frame?.contentDocument;
-    const preview = idoc?.querySelector('.color-preview');
-    if (!preview) return null;
-    // Reading getComputedStyle().backgroundColor as a string and
-    // regex-parsing it broke once the color came from color-mix(): some
-    // engines return that computed value as an unresolved "color-mix(...)"
-    // string instead of a plain rgb()/rgba() one, which the regex silently
-    // failed to match, so edits in the picker never made it back to the
-    // input. Painting the color onto a 1x1 canvas and reading the actual
-    // pixel back sidesteps string serialization entirely, canvas resolves
-    // any valid CSS color, however it's expressed, down to real RGBA.
-    const computed = idoc.defaultView.getComputedStyle(preview).backgroundColor;
-    const canvas = idoc.createElement('canvas');
+function readPickerColor() {
+    const computed = getComputedStyle(pickerPreview).backgroundColor;
+    const canvas = document.createElement('canvas');
     canvas.width = 1;
     canvas.height = 1;
     const ctx = canvas.getContext('2d');
@@ -740,6 +821,9 @@ function setupColorPanel() {
     content.innerHTML = '';
     const swatch = document.createElement('span');
     swatch.className = 'color-swatch';
+    swatch.tabIndex = 0;
+    swatch.setAttribute('role', 'button');
+    swatch.setAttribute('aria-label', 'Open color picker');
     const textSpan = document.createElement('span');
     textSpan.className = 'color-text';
     content.appendChild(swatch);
@@ -773,7 +857,7 @@ function setupColorPanel() {
 
     copyButton.addEventListener('click', () => {
         const raw = inputBox.value;
-        if (!raw.trim()) return;
+        if (!raw.trim()) { triggerWarn('copy-empty'); return; }
         const rgba = parseColor(raw);
         if (!rgba) { doCopyInvalid(); return; }
         doCopyValid(textSpan.textContent);
@@ -781,17 +865,23 @@ function setupColorPanel() {
 
     const pickerPanel = document.getElementById('colorpicker-panel');
     const pickerBack = document.getElementById('colorpicker-back');
-    const pickerFrame = document.getElementById('colorpicker-frame');
 
     swatch.addEventListener('click', () => {
         const rgba = parseColor(inputBox.value);
-        if (rgba) syncPickerFromColor(pickerFrame, rgba);
+        if (rgba) syncPickerFromColor(rgba);
         panel.classList.remove('active');
         pickerPanel?.classList.add('active');
+        pickerBack?.focus({ focusVisible: true });
+    });
+
+    swatch.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        swatch.click();
     });
 
     pickerBack?.addEventListener('click', () => {
-        const rgba = readPickerColor(pickerFrame);
+        const rgba = readPickerColor();
         if (rgba) {
             const opaque = Math.round(rgba.a * 255) >= 255;
             inputBox.value = formatColor(rgba, opaque ? 'option1' : 'option3');
@@ -799,6 +889,7 @@ function setupColorPanel() {
         }
         pickerPanel?.classList.remove('active');
         panel.classList.add('active');
+        swatch.focus({ focusVisible: true });
     });
 }
 
@@ -825,7 +916,7 @@ function setupMediaPanel() {
     const loadingPanel = document.getElementById('loading');
     const loadingBarFill = loadingPanel?.querySelector('.loading-bar-fill');
     const windowEl = document.querySelector('.window');
-    const toolbarEl = document.querySelector('.toolbar');
+    const sidebarEl = document.querySelector('.sidebar');
 
     function setProgress(percent) {
         if (loadingBarFill) loadingBarFill.style.width = `${percent}%`;
@@ -837,21 +928,28 @@ function setupMediaPanel() {
         panel.classList.remove('active');
         loadingPanel?.classList.add('show');
         windowEl?.classList.add('hidden');
-        toolbarEl?.classList.add('hidden');
+        sidebarEl?.classList.add('hidden');
     }
 
     function hideLoading() {
         loadingPanel?.classList.remove('show');
         panel.classList.add('active');
         windowEl?.classList.remove('hidden');
-        toolbarEl?.classList.remove('hidden');
+        sidebarEl?.classList.remove('hidden');
     }
 
     const isTauri = '__TAURI_INTERNALS__' in window;
 
     let originalFileName = '';
     let originalExtension = '';
-    let originalFilePath = null; // real filesystem path, only ever set under Tauri
+    let originalFilePath = null;
+    let userTypedBeforeUpload = false;
+
+    fileNameInput.addEventListener('input', () => {
+        if (panel.hasAttribute('toupload')) {
+            userTypedBeforeUpload = fileNameInput.value.trim().length > 0;
+        }
+    });
 
     loadSettings().then((settings) => {
         metadataCheckbox.checked = !!settings.keep_metadata;
@@ -905,17 +1003,13 @@ function setupMediaPanel() {
             group.disabled = !keepEnabled;
         });
 
-        // matchingGroup's own first option can be a disabled "(soon)"
-        // placeholder (every video target still is, at least until
-        // video-to-video conversion exists). Falling back to the audio
-        // group's first usable option when that happens means uploading an
-        // mp4 defaults straight to a working extraction target (mp3)
-        // instead of silently selecting a disabled option the user can't
-        // actually convert to.
         const firstUsable = (group) => Array.from(group.querySelectorAll('option')).find(opt => !opt.disabled);
         const defaultOption = firstUsable(matchingGroup)
             || (matchingGroup.id === 'video' ? firstUsable(panel.querySelector('#audio')) : null);
-        if (defaultOption) dropdown.value = defaultOption.value;
+        if (defaultOption) {
+            dropdown.value = defaultOption.value;
+            dropdown.__dropdownSync?.();
+        }
 
         Object.entries(typeSvgs).forEach(([type, svg]) => {
             if (!svg) return;
@@ -926,16 +1020,22 @@ function setupMediaPanel() {
         originalFileName = stripExtension(name);
         originalExtension = ext;
         originalFilePath = path;
-        fileNameInput.value = originalFileName;
+        if (!userTypedBeforeUpload) {
+            fileNameInput.value = originalFileName;
+        }
         uploadZone.setAttribute('data-filename', name);
 
         panel.removeAttribute('toupload');
+        if (document.activeElement === uploadZone) fileNameInput.focus();
+        uploadZone.tabIndex = -1;
+        if (unattachButton) unattachButton.tabIndex = 0;
     }
 
     function clearFile() {
         originalFileName = '';
         originalExtension = '';
         originalFilePath = null;
+        userTypedBeforeUpload = false;
 
         if (fileInput) fileInput.value = '';
         fileNameInput.value = '';
@@ -945,6 +1045,11 @@ function setupMediaPanel() {
         Object.values(typeSvgs).forEach(svg => svg?.removeAttribute('enabled'));
 
         panel.setAttribute('toupload', '');
+        uploadZone.tabIndex = 0;
+        if (unattachButton) {
+            if (document.activeElement === unattachButton) uploadZone.focus();
+            unattachButton.tabIndex = -1;
+        }
     }
 
     if (isTauri) {
@@ -1001,11 +1106,24 @@ function setupMediaPanel() {
         });
     }
 
+    uploadZone.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        uploadZone.click();
+    });
+
     unattachButton?.addEventListener('click', (e) => {
         e.preventDefault();
         e.stopPropagation();
         clearFile();
     }, { capture: true });
+
+    unattachButton?.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        e.stopPropagation();
+        unattachButton.click();
+    });
 
     resetButton.addEventListener('click', () => {
         fileNameInput.value = originalFileName;
@@ -1016,11 +1134,19 @@ function setupMediaPanel() {
     });
 
     proceedButton.addEventListener('click', async () => {
+        if (!originalFilePath) {
+            doFileNotAttached();
+            return;
+        }
+        if (!fileNameInput.value.trim()) {
+            doFileNameEmpty();
+            return;
+        }
         if (dropdown.value.toLowerCase() === originalExtension) {
             doMediaConvertInvalid();
             return;
         }
-        if (!isTauri || !originalFilePath) {
+        if (!isTauri) {
             console.warn('Conversion needs the desktop app and a real file path.');
             return;
         }
@@ -1030,20 +1156,12 @@ function setupMediaPanel() {
             : typeSvgs.audio?.hasAttribute('enabled') ? 'audio'
             : null;
 
-        // A video source with an audio target (extracting mp4's audio track
-        // as mp3/wav/flac/etc.) already works end to end on the backend;
-        // only video-to-video conversion is still unimplemented. targetIsAudio
-        // is read from the dropdown's own optgroup rather than hardcoding a
-        // format list here, so it stays correct as new audio formats get
-        // added without needing a matching change in this file.
         const targetIsAudio = dropdown.selectedOptions[0]?.closest('optgroup')?.id === 'audio';
-        const effectiveKind = (mediaKind === 'video' && targetIsAudio) ? 'audio' : mediaKind;
+        const effectiveKind = mediaKind === 'video'
+            ? (targetIsAudio ? 'audio' : 'video')
+            : mediaKind;
 
-        if (mediaKind === 'video' && !targetIsAudio) {
-            console.warn('Video-to-video conversion is not implemented yet (video-to-audio extraction, and image/audio conversion, work now).');
-            return;
-        }
-        if (effectiveKind !== 'image' && effectiveKind !== 'audio') {
+        if (effectiveKind !== 'image' && effectiveKind !== 'audio' && effectiveKind !== 'video') {
             return;
         }
 
@@ -1062,6 +1180,14 @@ function setupMediaPanel() {
                     outputName: fileNameInput.value || originalFileName,
                     targetExt: dropdown.value.toLowerCase(),
                     keepMetadata: metadataCheckbox.checked,
+                    preserveDate: preserveCheckbox.checked,
+                    overwrite: overwriteCheckbox.checked
+                })
+                : effectiveKind === 'video'
+                ? await invoke('convert_video', {
+                    sourcePath: originalFilePath,
+                    outputName: fileNameInput.value || originalFileName,
+                    targetExt: dropdown.value.toLowerCase(),
                     preserveDate: preserveCheckbox.checked,
                     overwrite: overwriteCheckbox.checked
                 })
@@ -1088,11 +1214,15 @@ function setupMediaPanel() {
     });
 }
 
-/*
-   ╭─────────────────────────────╮
-   │       SETTINGS PANEL        │
-   ╰─────────────────────────────╯
-*/
+
+function withNoTransition(callback) {
+    document.body.setAttribute('theme-switch', '');
+    callback();
+    void document.body.offsetWidth;
+    requestAnimationFrame(() => {
+        document.body.removeAttribute('theme-switch');
+    });
+}
 
 async function setupSettingsPanel() {
     const isTauri = '__TAURI_INTERNALS__' in window;
@@ -1120,11 +1250,16 @@ async function setupSettingsPanel() {
     if (rememberToolInput) rememberToolInput.checked = appSettings.rememberLastTool;
     if (closeOnFocusLossInput) closeOnFocusLossInput.checked = appSettings.closeOnFocusLoss;
     if (hideWarningsInput) hideWarningsInput.checked = appSettings.hideWarnNotifications;
-    if (appThemeInput) appThemeInput.value = appSettings.appTheme;
+    if (appThemeInput) {
+        appThemeInput.value = appSettings.appTheme;
+        appThemeInput.__dropdownSync?.();
+    }
     if (highContrastInput) highContrastInput.checked = appSettings.highContrast;
 
-    document.body.setAttribute('theme', appSettings.appTheme);
-    document.body.toggleAttribute('contrast', appSettings.highContrast);
+    withNoTransition(() => {
+        document.body.setAttribute('theme', appSettings.appTheme);
+        document.body.toggleAttribute('contrast', appSettings.highContrast);
+    });
 
     if (currentWindow && appSettings.alwaysOnTop) {
         currentWindow.setAlwaysOnTop(true).catch((err) => console.error('Could not set always-on-top:', err));
@@ -1155,13 +1290,17 @@ async function setupSettingsPanel() {
     appThemeInput?.addEventListener('change', () => {
         appSettings.appTheme = appThemeInput.value;
         saveAppSettings(appSettings);
-        document.body.setAttribute('theme', appThemeInput.value);
+        withNoTransition(() => {
+            document.body.setAttribute('theme', appThemeInput.value);
+        });
     });
 
     highContrastInput?.addEventListener('change', () => {
         appSettings.highContrast = highContrastInput.checked;
         saveAppSettings(appSettings);
-        document.body.toggleAttribute('contrast', highContrastInput.checked);
+        withNoTransition(() => {
+            document.body.toggleAttribute('contrast', highContrastInput.checked);
+        });
     });
 
     currentWindow?.onFocusChanged(({ payload: focused }) => {
@@ -1175,11 +1314,6 @@ async function setupSettingsPanel() {
         : 'fontstyler';
 }
 
-/*
-   ╭─────────────────────────────╮
-   │        INPUT CLEAR          │
-   ╰─────────────────────────────╯
-*/
 
 function setupInputClearButtons() {
     document.querySelectorAll('.input-clear').forEach((button) => {
@@ -1201,16 +1335,18 @@ setupColorPanel();
 setupMediaPanel();
 setupInputClearButtons();
 
-function getOpenDropdown() {
-    const byOpenState = document.querySelector('select.dropdown:open');
-    if (byOpenState) return byOpenState;
-    return document.activeElement?.classList?.contains('dropdown') ? document.activeElement : null;
-}
+let openDropdownState = null;
 
 document.addEventListener('mousedown', (e) => {
-    if (e.button !== 1) return;
-    e.preventDefault();
-    getOpenDropdown()?.blur();
+    if (!openDropdownState) return;
+    const { toggle, popup, close } = openDropdownState;
+    if (e.button === 1) {
+        e.preventDefault();
+        close();
+        return;
+    }
+    if (toggle.contains(e.target) || popup.contains(e.target)) return;
+    close();
 });
 
 function findScrollableAncestor(el) {
@@ -1226,36 +1362,475 @@ function findScrollableAncestor(el) {
 }
 
 document.addEventListener('wheel', (e) => {
-    const openDropdown = getOpenDropdown();
-    if (!openDropdown) return;
-    if (e.target.closest('select.dropdown') === openDropdown) return;
+    if (!openDropdownState) return;
+    const { popup, close } = openDropdownState;
+    if (popup.contains(e.target)) return;
     if (findScrollableAncestor(e.target)) {
-        openDropdown.blur();
+        close();
     }
 }, { passive: true });
 
-/*
-   ╭─────────────────────────────╮
-   │       TOOLBAR / PANELS      │
-   ╰─────────────────────────────╯
-*/
+window.addEventListener('blur', () => {
+    if (!openDropdownState) return;
+    openDropdownState.close();
+});
 
-const toolbarButtons = document.querySelectorAll('.toolbar-button');
+
+const focusRing = document.createElement('div');
+focusRing.className = 'focus-ring';
+focusRing.setAttribute('popover', 'manual');
+document.body.appendChild(focusRing);
+
+function promoteFocusRing() {
+    if (focusRing.matches(':popover-open')) focusRing.hidePopover();
+    focusRing.showPopover();
+}
+
+function inflateRadius(radius, amount) {
+    return radius.split(' ').map(part => {
+        if (part.endsWith('%')) return part;
+        const value = parseFloat(part);
+        return isNaN(value) ? part : `${value + amount}px`;
+    }).join(' ');
+}
+
+function getFocusVisualTarget(target) {
+    return target.closest('.switch') || target;
+}
+
+function updateFocusRing(target, skipTransition = false) {
+    target = getFocusVisualTarget(target);
+    const rect = target.getBoundingClientRect();
+    const radius = inflateRadius(getComputedStyle(target).borderRadius, 1);
+
+    if (skipTransition) focusRing.classList.add('no-transition');
+    focusRing.style.top = `${rect.top - 1}px`;
+    focusRing.style.left = `${rect.left - 1}px`;
+    focusRing.style.width = `${rect.width + 2}px`;
+    focusRing.style.height = `${rect.height + 2}px`;
+    focusRing.style.borderRadius = radius;
+    focusRing.classList.add('visible');
+    if (skipTransition) {
+        void focusRing.offsetWidth;
+        focusRing.classList.remove('no-transition');
+    }
+}
+
+function hideFocusRing() {
+    focusRing.classList.remove('visible');
+    if (focusRing.matches(':popover-open')) focusRing.hidePopover();
+}
+
+let usingKeyboard = true;
+
+document.addEventListener('pointerdown', () => {
+    usingKeyboard = false;
+    hideFocusRing();
+    lastTrackedTarget = null;
+    lastTrackedRect = null;
+}, true);
+
+document.addEventListener('keydown', () => {
+    usingKeyboard = true;
+}, true);
+
+document.addEventListener('focusin', (e) => {
+    const target = e.target;
+    if (usingKeyboard && target.matches?.(':focus-visible')) {
+        updateFocusRing(target);
+        promoteFocusRing();
+        lastTrackedTarget = getFocusVisualTarget(target);
+        lastTrackedRect = lastTrackedTarget.getBoundingClientRect();
+    } else {
+        hideFocusRing();
+        lastTrackedTarget = null;
+        lastTrackedRect = null;
+    }
+});
+
+document.addEventListener('focusout', () => {
+    hideFocusRing();
+    lastTrackedTarget = null;
+    lastTrackedRect = null;
+});
+
+function rectsEqual(a, b) {
+    return a.top === b.top && a.left === b.left &&
+        a.width === b.width && a.height === b.height;
+}
+
+let lastTrackedTarget = null;
+let lastTrackedRect = null;
+
+function trackFocusRing() {
+    if (!focusRing.classList.contains('visible') || !document.activeElement) return;
+
+    const target = getFocusVisualTarget(document.activeElement);
+    const rect = target.getBoundingClientRect();
+
+    if (target !== lastTrackedTarget) {
+        lastTrackedTarget = target;
+        lastTrackedRect = rect;
+        return;
+    }
+
+    if (rectsEqual(rect, lastTrackedRect)) return;
+
+    updateFocusRing(target, true);
+    lastTrackedRect = rect;
+}
+setInterval(trackFocusRing, (1000 / 60) / 10);
+
+
+function initCustomDropdown(select) {
+    if (select.dataset.customized) return;
+    select.dataset.customized = '1';
+    select.setAttribute('aria-hidden', 'true');
+    select.tabIndex = -1;
+
+    const toggle = document.createElement('button');
+    toggle.type = 'button';
+    toggle.className = 'dropdown-toggle';
+    toggle.setAttribute('role', 'combobox');
+    toggle.setAttribute('aria-haspopup', 'listbox');
+    toggle.setAttribute('aria-expanded', 'false');
+
+    const label = document.createElement('span');
+    label.className = 'dropdown-toggle-label';
+    toggle.appendChild(label);
+
+    select.insertAdjacentElement('afterend', toggle);
+
+    const popup = document.createElement('div');
+    popup.className = 'dropdown-popup';
+    popup.setAttribute('popover', 'manual');
+    document.body.appendChild(popup);
+
+    const scrollWrap = document.createElement('div');
+    scrollWrap.className = 'dropdown-popup-scroll';
+    scrollWrap.setAttribute('role', 'listbox');
+    popup.appendChild(scrollWrap);
+
+    const isSettingsScoped = !!select.closest('#settings');
+    let isOpen = false;
+    let closeCleanup = null;
+
+    function clearCloseCleanup() {
+        if (closeCleanup) {
+            clearTimeout(closeCleanup.timer);
+            scrollWrap.removeEventListener('transitionend', closeCleanup.handler);
+            closeCleanup = null;
+        }
+    }
+
+    function syncLabel() {
+        label.textContent = select.options[select.selectedIndex]?.textContent || '';
+    }
+    syncLabel();
+    select.__dropdownSync = syncLabel;
+
+    function makeOptionEl(optionEl) {
+        const item = document.createElement('div');
+        item.className = 'dropdown-option';
+        item.setAttribute('role', 'option');
+        item.textContent = optionEl.textContent;
+        item.dataset.value = optionEl.value;
+
+        if (optionEl.disabled) {
+            item.classList.add('disabled');
+            item.setAttribute('aria-disabled', 'true');
+        } else {
+            item.tabIndex = -1;
+            item.addEventListener('click', () => selectOption(optionEl));
+        }
+        if (optionEl.value === select.value) {
+            item.classList.add('selected');
+            item.setAttribute('aria-selected', 'true');
+        }
+        return item;
+    }
+
+    function buildOptions() {
+        scrollWrap.innerHTML = '';
+        Array.from(select.children).forEach((child) => {
+            if (child.tagName === 'OPTION') {
+                scrollWrap.appendChild(makeOptionEl(child));
+            } else if (child.tagName === 'OPTGROUP') {
+                if (child.disabled) return;
+                const group = document.createElement('div');
+                group.className = 'dropdown-optgroup';
+                Array.from(child.children).forEach((opt) => {
+                    if (opt.tagName === 'OPTION') group.appendChild(makeOptionEl(opt));
+                });
+                scrollWrap.appendChild(group);
+            }
+        });
+    }
+
+    function selectOption(optionEl) {
+        select.value = optionEl.value;
+        syncLabel();
+        select.dispatchEvent(new Event('change', { bubbles: true }));
+        closePopup();
+        toggle.focus({ focusVisible: true });
+    }
+
+    function positionPopup() {
+        const rect = toggle.getBoundingClientRect();
+        popup.style.top = `${rect.bottom + 6}px`;
+        popup.style.left = 'auto';
+        popup.style.right = `${window.innerWidth - rect.right}px`;
+        popup.style.minWidth = `${rect.width}px`;
+        scrollWrap.style.maxHeight = isSettingsScoped ? '115px' : '174px';
+    }
+
+    function openPopup() {
+        if (isOpen) return;
+        clearCloseCleanup();
+        isOpen = true;
+        buildOptions();
+        positionPopup();
+        if (!popup.matches(':popover-open')) popup.showPopover();
+        toggle.setAttribute('aria-expanded', 'true');
+        toggle.classList.add('open');
+        openDropdownState = { toggle, popup, select, close: closePopup };
+
+        const maxHeight = parseFloat(scrollWrap.style.maxHeight) || scrollWrap.scrollHeight;
+        const targetHeight = Math.min(scrollWrap.scrollHeight, maxHeight);
+        scrollWrap.classList.toggle('is-scrollable', scrollWrap.scrollHeight > maxHeight);
+        scrollWrap.style.transition = 'none';
+        scrollWrap.style.height = '0px';
+        scrollWrap.style.overflowY = 'hidden';
+        void scrollWrap.offsetHeight;
+        scrollWrap.style.transition = 'height .1s ease';
+        scrollWrap.style.height = `${targetHeight}px`;
+
+        const finishOpen = (e) => {
+            if (e && (e.target !== scrollWrap || e.propertyName !== 'height')) return;
+            scrollWrap.removeEventListener('transitionend', finishOpen);
+            if (!isOpen) return;
+            scrollWrap.style.height = '';
+            scrollWrap.style.overflowY = '';
+            scrollWrap.style.transition = '';
+        };
+        scrollWrap.addEventListener('transitionend', finishOpen);
+
+        const target = popup.querySelector('.dropdown-option.selected:not(.disabled)')
+            || popup.querySelector('.dropdown-option:not(.disabled)');
+        if (target) {
+            scrollWrap.scrollTop = Math.max(0, target.offsetTop - 4);
+            target.focus({ focusVisible: true, preventScroll: true });
+        }
+    }
+
+    function closePopup() {
+        if (!isOpen) return;
+        isOpen = false;
+        toggle.setAttribute('aria-expanded', 'false');
+        toggle.classList.remove('open');
+        if (openDropdownState?.select === select) openDropdownState = null;
+
+        clearCloseCleanup();
+
+        const currentHeight = scrollWrap.getBoundingClientRect().height;
+        scrollWrap.style.transition = 'none';
+        scrollWrap.style.height = `${currentHeight}px`;
+        scrollWrap.style.overflowY = 'hidden';
+        void scrollWrap.offsetHeight;
+        scrollWrap.style.transition = 'height .1s ease';
+        scrollWrap.style.height = '0px';
+
+        const finish = () => {
+            if (isOpen) return;
+            if (popup.matches(':popover-open')) popup.hidePopover();
+            scrollWrap.style.height = '';
+            scrollWrap.style.overflowY = '';
+            scrollWrap.style.transition = '';
+            closeCleanup = null;
+        };
+        const handler = (e) => {
+            if (e.target !== scrollWrap || e.propertyName !== 'height') return;
+            clearTimeout(timerId);
+            finish();
+        };
+        scrollWrap.addEventListener('transitionend', handler);
+        const timerId = setTimeout(finish, 150);
+        closeCleanup = { timer: timerId, handler };
+    }
+
+    toggle.addEventListener('click', () => {
+        if (isOpen) {
+            closePopup();
+            toggle.focus({ focusVisible: true });
+        } else {
+            openPopup();
+        }
+    });
+
+    popup.addEventListener('keydown', (e) => {
+        const items = Array.from(popup.querySelectorAll('.dropdown-option:not(.disabled)'));
+        const currentIndex = items.indexOf(document.activeElement);
+
+        if (e.key === 'Escape') {
+            e.preventDefault();
+            e.stopPropagation();
+            closePopup();
+            toggle.focus({ focusVisible: true });
+            return;
+        }
+        if (e.key === 'ArrowDown' || e.key === 'ArrowUp') {
+            e.preventDefault();
+            if (!items.length) return;
+            const dir = e.key === 'ArrowDown' ? 1 : -1;
+            const nextIndex = currentIndex === -1 ? 0 : (currentIndex + dir + items.length) % items.length;
+            items[nextIndex]?.focus({ focusVisible: true });
+            return;
+        }
+        if (e.key === 'Tab') {
+            e.preventDefault();
+            if (!items.length) return;
+            const dir = e.shiftKey ? -1 : 1;
+            const nextIndex = currentIndex === -1 ? 0 : (currentIndex + dir + items.length) % items.length;
+            items[nextIndex]?.focus({ focusVisible: true });
+            return;
+        }
+        if (e.key === 'Enter' || e.key === ' ') {
+            if (currentIndex === -1) return;
+            e.preventDefault();
+            const value = items[currentIndex].dataset.value;
+            const optionEl = Array.from(select.querySelectorAll('option')).find(o => o.value === value);
+            if (optionEl) selectOption(optionEl);
+        }
+    });
+
+    popup.addEventListener('focusout', () => {
+        requestAnimationFrame(() => {
+            if (!isOpen) return;
+            const active = document.activeElement;
+            if (popup.contains(active) || active === toggle) return;
+            closePopup();
+        });
+    });
+}
+
+document.querySelectorAll('select.dropdown').forEach(initCustomDropdown);
+
+document.addEventListener('keydown', (e) => {
+    if (e.key !== 'Enter') return;
+    const target = e.target;
+    if (target.matches?.('input[type="checkbox"]')) {
+        e.preventDefault();
+        target.click();
+    }
+});
+
+
+const sidebarButtons = document.querySelectorAll('.sidebar-button');
 const panels = document.querySelectorAll('.window > div[id]');
+const sidebarIndicator = document.getElementById('sidebar-indicator');
+
+const INDICATOR_REST_HEIGHT = 16;
+const INDICATOR_LEAD_HEIGHT = 10;
+const INDICATOR_STRETCH_HEIGHT = 26;
+const INDICATOR_PULL_MS = 150;
+const INDICATOR_SETTLE_MS = 240;
+const INDICATOR_PULL_EASE = 'cubic-bezier(0.16, 1, 0.3, 1)';
+const INDICATOR_SETTLE_EASE = 'cubic-bezier(0.3, 1.4, 0.55, 1)';
+let indicatorPositioned = false;
+let indicatorSettleTimeout = null;
+let indicatorHostButton = null;
+
+function moveSidebarIndicator(button) {
+    if (!sidebarIndicator || !button) return;
+
+    clearTimeout(indicatorSettleTimeout);
+
+    const buttonHeight = button.offsetHeight;
+    const restTop = buttonHeight / 2 - INDICATOR_REST_HEIGHT / 2;
+    const previousButton = indicatorHostButton;
+    button.appendChild(sidebarIndicator);
+    indicatorHostButton = button;
+
+    if (!indicatorPositioned || document.body.classList.contains('skip-tab-anim')) {
+        sidebarIndicator.style.transition = 'none';
+        sidebarIndicator.style.top = `${restTop}px`;
+        sidebarIndicator.style.height = `${INDICATOR_REST_HEIGHT}px`;
+        sidebarIndicator.classList.add('show');
+        void sidebarIndicator.offsetHeight;
+        sidebarIndicator.style.transition = '';
+        indicatorPositioned = true;
+        return;
+    }
+
+    if (previousButton === button) return;
+
+    const previousCenter = previousButton
+        ? previousButton.offsetTop + previousButton.offsetHeight / 2
+        : button.offsetTop + buttonHeight / 2;
+    const newCenter = button.offsetTop + buttonHeight / 2;
+    const movingDown = newCenter > previousCenter;
+    const movingUp = newCenter < previousCenter;
+
+    if (!movingDown && !movingUp) return;
+
+    const leadTop = movingDown ? 0 : buttonHeight - INDICATOR_LEAD_HEIGHT;
+    const stretchTop = movingDown ? 0 : buttonHeight - INDICATOR_STRETCH_HEIGHT;
+
+    sidebarIndicator.style.transition = 'none';
+    sidebarIndicator.style.top = `${leadTop}px`;
+    sidebarIndicator.style.height = `${INDICATOR_LEAD_HEIGHT}px`;
+    void sidebarIndicator.offsetHeight;
+
+    sidebarIndicator.style.transition = `top ${INDICATOR_PULL_MS}ms ${INDICATOR_PULL_EASE}, height ${INDICATOR_PULL_MS}ms ${INDICATOR_PULL_EASE}`;
+    requestAnimationFrame(() => {
+        sidebarIndicator.style.top = `${stretchTop}px`;
+        sidebarIndicator.style.height = `${INDICATOR_STRETCH_HEIGHT}px`;
+    });
+
+    indicatorSettleTimeout = setTimeout(() => {
+        sidebarIndicator.style.transition = `top ${INDICATOR_SETTLE_MS}ms ${INDICATOR_SETTLE_EASE}, height ${INDICATOR_SETTLE_MS}ms ${INDICATOR_SETTLE_EASE}`;
+        sidebarIndicator.style.top = `${restTop}px`;
+        sidebarIndicator.style.height = `${INDICATOR_REST_HEIGHT}px`;
+    }, INDICATOR_PULL_MS);
+}
+
+const TAB_TITLES = {
+    fontstyler: 'Font Styler',
+    colorformat: 'Color Format',
+    mediafileconverter: 'Media File Converter',
+    autoclicker: 'Auto Clicker',
+    settings: 'Settings'
+};
+
+const titlebarTitle = document.getElementById('titlebar-title');
+
+function updateWindowTitle(panelId) {
+    const label = TAB_TITLES[panelId] || panelId;
+    const fullTitle = `fTools | ${label}`;
+
+    if (titlebarTitle) titlebarTitle.textContent = fullTitle;
+    document.title = fullTitle;
+
+    window.__TAURI__?.window?.getCurrentWindow?.()?.setTitle?.(fullTitle).catch(() => {});
+}
 
 function activatePanel(panelId) {
     const targetPanel = document.getElementById(panelId);
     if (!targetPanel) return;
 
     panels.forEach(panel => panel.classList.remove('active'));
-    toolbarButtons.forEach(button => button.classList.remove('active'));
+    sidebarButtons.forEach(button => button.classList.remove('active'));
 
     targetPanel.classList.add('active');
-    document.getElementById(`t-${panelId}`)?.classList.add('active');
+    const activeButton = document.getElementById(`t-${panelId}`);
+    activeButton?.classList.add('active');
+    moveSidebarIndicator(activeButton);
+    updateWindowTitle(panelId);
 }
 
-toolbarButtons.forEach(button => {
+sidebarButtons.forEach(button => {
     button.addEventListener('click', () => {
+        document.body.classList.remove('skip-tab-anim');
         const panelId = button.id.replace(/^t-/, '');
         activatePanel(panelId);
         if (appSettings.rememberLastTool && appSettings.lastTool !== panelId) {
@@ -1265,4 +1840,55 @@ toolbarButtons.forEach(button => {
     });
 });
 
-setupSettingsPanel().then(activatePanel);
+setupSettingsPanel().then((panelId) => {
+    document.body.classList.add('skip-tab-anim');
+    activatePanel(panelId);
+});
+
+
+(function setupNativeTitlebar() {
+    try {
+        const saved = JSON.parse(localStorage.getItem('ftools:app-settings') || '{}');
+        document.body.setAttribute('theme', saved.appTheme || 'dark');
+        if (saved.highContrast) document.body.setAttribute('contrast', '');
+    } catch (err) {
+    }
+
+    const tauriWindow = window.__TAURI__?.window;
+    const appWindow = tauriWindow?.getCurrentWindow?.();
+    const minimizeButton = document.getElementById('titlebar-minimize');
+    const closeButton = document.getElementById('titlebar-close');
+
+    if (!appWindow) {
+        console.error('Tauri window API is unavailable.');
+        return;
+    }
+
+    minimizeButton?.addEventListener('click', async (event) => {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        try {
+            await appWindow.minimize();
+        } catch (err) {
+            console.error('Failed to minimize the window:', err);
+        }
+    });
+
+    closeButton?.addEventListener('click', async (event) => {
+        event.preventDefault();
+        event.stopImmediatePropagation();
+        try {
+            await appWindow.close();
+        } catch (err) {
+            console.error('Failed to close the window:', err);
+        }
+    });
+
+    appWindow.isFocused()
+        .then((focused) => document.body.toggleAttribute('window-focused', focused))
+        .catch((err) => console.error('Failed to read window focus state:', err));
+
+    appWindow.onFocusChanged(({ payload: focused }) => {
+        document.body.toggleAttribute('window-focused', focused);
+    });
+})();

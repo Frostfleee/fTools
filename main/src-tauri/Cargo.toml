@@ -28,6 +28,7 @@ windows = { version = "0.62", features = [
     "Win32_Media_MediaFoundation",
     "Win32_System_Com",
 ] }
+tauri-plugin-single-instance = "2.4.3"
 
 [profile.release]
 panic = "abort"

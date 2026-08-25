@@ -3,4 +3,4 @@
 [[permission]]
 identifier = "allow-app-commands"
 description = "Allows this app's own file-conversion commands"
-commands.allow = ["convert_image", "convert_audio"]
+commands.allow = ["convert_image", "convert_audio", "convert_video"]

@@ -3,7 +3,7 @@
 
   "productName": "fTools",
   "version": "1.0.0",
-  "identifier": "com.ftools.app",
+  "identifier": "com.ftools.frostfleee",
 
   "build": {
     "beforeDevCommand": "",
@@ -18,11 +18,11 @@
         "label": "main",
         "title": "fTools",
         "width": 540,
-        "height": 220,
+        "height": 247,
         "resizable": false,
         "maximizable": false,
         "center": true,
-        "decorations": true,
+        "decorations": false,
         "transparent": true
       }
     ],
