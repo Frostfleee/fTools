@@ -1,6 +1,6 @@
 [package]
 name = "ftools"
-version = "1.0.0"
+version = "0.9.4"
 description = "fTools"
 edition = "2021"
 

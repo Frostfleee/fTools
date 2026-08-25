@@ -1298,7 +1298,7 @@ checksum = "795cbfc56d419a7ce47ccbb7504dd9a5b7c484c083c356e797de08bd988d9629"
 
 [[package]]
 name = "ftools"
-version = "1.0.0"
+version = "0.9.4"
 dependencies = [
  "flacenc",
  "hound",
