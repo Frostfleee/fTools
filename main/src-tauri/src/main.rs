@@ -1,7 +1,11 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod ebml;
+mod vpx;
+
 use std::fs;
 use std::io::Cursor;
+use std::io::Write;
 use std::os::windows::fs::FileTimesExt;
 use std::path::{Path, PathBuf};
 
@@ -19,8 +23,14 @@ use symphonia::core::io::MediaSourceStream;
 use symphonia::core::meta::MetadataOptions;
 use symphonia::core::probe::Hint;
 use tauri::{AppHandle, Emitter, Manager};
+use tauri_plugin_prevent_default::{Flags, PlatformOptions};
+use window_vibrancy::apply_acrylic;
+use windows::Win32::Graphics::Dwm::{
+    DwmEnableBlurBehindWindow, DWM_BB_BLURREGION, DWM_BB_ENABLE,
+    DWM_BB_TRANSITIONONMAXIMIZED, DWM_BLURBEHIND,
+};
+use windows::Win32::Graphics::Gdi::{CreateRectRgn, DeleteObject};
 
-/*——/ Image Conversion /—————————————————————————————————————*/
 
 fn image_conversion_supported(ext: &str) -> bool {
     matches!(
@@ -173,7 +183,7 @@ fn inject_exif(bytes: Vec<u8>, ext: &str, exif: img_parts::Bytes) -> Vec<u8> {
 }
 
 #[tauri::command]
-fn convert_image(
+async fn convert_image(
     app: AppHandle,
     source_path: String,
     output_name: String,
@@ -182,6 +192,7 @@ fn convert_image(
     preserve_date: bool,
     overwrite: bool,
 ) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
     let report = |percent: u8| {
         let _ = app.emit("conversion-progress", percent);
     };
@@ -263,6 +274,9 @@ fn convert_image(
     report(100);
 
     Ok(output_path.to_string_lossy().to_string())
+    })
+    .await
+    .map_err(|e| format!("Conversion task panicked: {e}"))?
 }
 
 fn preserve_file_date(source_path: &Path, output_path: &Path) {
@@ -284,112 +298,6 @@ fn preserve_file_date(source_path: &Path, output_path: &Path) {
     }
 }
 
-/*——/ Audio Conversion /—————————————————————————————————————*/
-/*
-   Symphonia decodes; there's no equivalent all-in-one crate for audio the
-   way the `image` crate covers images, so each output format needed its
-   own encoder crate, evaluated and verified separately against each
-   crate's own docs: hound (WAV, pure Rust), flacenc (FLAC, pure Rust),
-   mp3lame-encoder (MP3, wraps LAME, LGPL-3.0), vorbis_rs (OGG/Vorbis,
-   BSD-3-Clause, bundles its own Ogg muxing). AIFF is hand-written; it's
-   WAV's cousin, no crate needed. FLAC and AAC/M4A sources both already
-   decode through Symphonia's ordinary probe path with zero extra code:
-   the "all" feature pulls in symphonia-bundle-flac, and separately
-   symphonia-codec-aac ships its own AdtsReader (registered for the "aac"
-   extension) alongside symphonia-format-isomp4 for the .m4a container,
-   confirmed by checking the actual resolved dependency tree rather than
-   assumed from the crate name. WMA sources can't be read at all: it's a
-   proprietary codec with no open-source decoder anywhere in the Rust
-   ecosystem. Writing *to* WMA doesn't have that problem, see below.
-
-   Opus: the earlier libopusenc attempt failed to link on Windows/MSVC
-   with unresolved opus_* symbols, a documented, recurring issue with
-   that exact library/toolchain combo. Rather than fight the linker
-   again, this now goes through opus-rs, a from-scratch pure-Rust port of
-   the reference libopus (RFC 6716) with zero C dependencies, so there is
-   nothing to link at all. opus-rs only speaks raw Opus frames in and
-   out; the surrounding .opus file is an Ogg container (RFC 7845), which
-   nothing in the dependency tree produces or parses on its own, so the
-   `ogg` crate (RustAudio, also pure Rust) handles page framing, and the
-   OpusHead/OpusTags header packets are hand-built here the same way
-   AIFF's header is: it's a handful of fixed fields, not worth a crate.
-   Opus only encodes at 8/12/16/24/48 kHz, unlike every other format
-   here, so sources at other rates (44.1 kHz is the common case) are
-   resampled first via rubato (pure Rust, sinc-based). The pre-skip field
-   in OpusHead is set to 0 rather than measuring opus-rs's actual
-   algorithmic delay: this is spec-legal and just means a few
-   milliseconds of encoder priming may be audible as near-silence at the
-   very start of playback, not a correctness bug.
-
-   AAC/M4A and raw AAC (.aac/ADTS): no mature pure-Rust encoder exists for
-   either, and wrapping fdk-aac drags in a license that complicates
-   redistribution given AAC's own patent licensing besides. Since this
-   app is Windows-only already (see the rest of this file), the pragmatic
-   option is the one Windows ships for free: Media Foundation's AAC
-   encoder MFT, driven through IMFSinkWriter via the `windows` crate.
-   Confirmed working on a real Windows machine, not just compiling. Raw
-   AAC reuses the exact same encoder as M4A; the only difference is
-   telling IMFSinkWriter to produce the ADTS container
-   (MFTranscodeContainerType_ADTS) instead of letting it infer MP4 from
-   the .m4a extension, and setting the AAC payload type attribute to ADTS
-   instead of raw.
-
-   WMA output was attempted the same way (encode_via_media_foundation,
-   still present, deliberately unused, see the comment on encode_wma) but
-   is not wired into convert_audio. Every sample writes successfully; the
-   ASF muxer's own Finalize() step fails with a bare E_UNEXPECTED that
-   several real, verified fixes (disabling the sink writer's default
-   throttling, removing compounding timestamp rounding error, negotiating
-   bitrate instead of pre-declaring it) didn't resolve, confirmed on a
-   real Windows machine each time, not guessed. The remaining lead
-   (discovering the encoder's actual supported output types via
-   MFTEnumEx + IMFTransform::GetOutputAvailableType, rather than
-   declaring one and hoping) requires manually managing a Windows-
-   allocated array of raw COM interface pointers, which is a documented
-   source of memory bugs even for experienced windows-rs users. Given
-   everything else in this file fails cleanly (a compile error or a clean
-   HRESULT) rather than a crash, that tradeoff wasn't worth taking on
-   blind, so WMA output is parked rather than shipped half-working.
-
-   Decoding always produces one big interleaved f32 buffer rather than
-   streaming straight into an encoder, matching how convert_image already
-   loads the whole source into memory: it keeps every encoder's code
-   simple and self-contained instead of juggling streaming decode+encode
-   across multiple different library paradigms at once. Opus is the one
-   exception on the decode side too: Symphonia has no native Opus decoder
-   (confirmed against the published crate registry, not just assumed), so
-   reading a .opus source bypasses Symphonia entirely and reuses the same
-   `ogg` + opus-rs pipeline as the encoder, just running backwards.
-
-   Video-to-audio extraction (mp4 and mov as sources for convert_audio,
-   video output itself is still unimplemented): symphonia-format-isomp4 is
-   a general ISO Base Media File Format demuxer, the same container family
-   .m4a already used and the one mp4 itself was derived from QuickTime's
-   .mov to begin with, so it can already open a real video file in either
-   container and enumerate every track inside it, not just audio-only
-   ones. There is no dedicated mp4 or mov branch here as a result; a
-   source_path ending in either just falls through to the same generic
-   Symphonia probe path every other format already uses, the same way
-   adding mov required zero changes to this function: nothing here gates
-   on a source extension allowlist at all except the wma/opus/flac special
-   cases above, so any container Symphonia's isomp4 reader can open already
-   works today, no matter what gets added to the video optgroup next. What
-   makes that safe is the track-selection fix in decode_to_pcm: it tries
-   every track and keeps the first one that actually produces a working
-   decoder, so the video track gets skipped rather than mistakenly treated
-   as the audio to extract. This only covers audio codecs Symphonia itself
-   can decode (AAC is the common case for both mp4 and mov); a video file
-   carrying an audio codec outside Symphonia's registry, or a genuinely
-   video-only file with no audio track at all, still fails, but does so
-   with the same "no supported audio track" error every other unreadable
-   file already produces rather than crashing or silently picking the
-   wrong stream. mov specifically hasn't been run against a real file on
-   Windows yet the way mp4 was, since older QuickTime files can start with
-   a bare moov/wide/free atom instead of the ftyp atom mp4 always leads
-   with; if isomp4's probe scoring turns out not to recognize that shape,
-   the fix belongs in symphonia-format-isomp4 itself or in a fallback probe
-   attempt here, not in a new mov-specific branch.
-*/
 
 fn patch_flac_streaminfo_for_symphonia_bug(bytes: &mut [u8]) {
     if bytes.len() < 42 || &bytes[0..4] != b"fLaC" {
@@ -420,6 +328,12 @@ fn decode_to_pcm(source_path: &Path) -> Result<(Vec<f32>, u32, u16), String> {
 
     if source_ext == "opus" {
         return decode_opus(source_path);
+    }
+
+    if source_ext == "webm" {
+        if let Some(result) = decode_webm_opus(source_path)? {
+            return Ok(result);
+        }
     }
 
     let mss = if source_ext == "flac" {
@@ -876,6 +790,106 @@ fn decode_opus(source_path: &Path) -> Result<(Vec<f32>, u32, u16), String> {
     Ok((all_samples, 48000, channels))
 }
 
+fn decode_webm_opus(source_path: &Path) -> Result<Option<(Vec<f32>, u32, u16)>, String> {
+    use symphonia::core::codecs::CODEC_TYPE_OPUS;
+
+    let file = fs::File::open(source_path).map_err(|e| format!("Couldn't open the source file: {e}"))?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+
+    let mut hint = Hint::new();
+    hint.with_extension("webm");
+
+    let probed = symphonia::default::get_probe()
+        .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())
+        .map_err(|e| format!("This doesn't look like a supported WebM file: {e}"))?;
+
+    let mut format = probed.format;
+
+    let (track_id, channels, pre_skip) = {
+        let opus_track = format
+            .tracks()
+            .iter()
+            .find(|t| t.codec_params.codec == CODEC_TYPE_OPUS);
+
+        match opus_track {
+            Some(t) => {
+                let parsed = t.codec_params.extra_data.as_deref().and_then(parse_opus_head);
+
+                let (channels, pre_skip) = match parsed {
+                    Some((c, skip)) => (c, skip),
+                    None => {
+                        let channels = t
+                            .codec_params
+                            .channels
+                            .map(|c| c.count() as u16)
+                            .filter(|&c| c > 0)
+                            .unwrap_or(2);
+                        (channels, 0u16)
+                    }
+                };
+                (t.id, channels, pre_skip)
+            }
+            None => return Ok(None),
+        }
+    };
+
+    if channels == 0 || channels > 2 {
+        return Err("Opus extraction here only supports mono or stereo WebM audio tracks.".to_string());
+    }
+
+    let mut decoder = opus_rs::OpusDecoder::new(48000, channels as usize)
+        .map_err(|e| format!("Couldn't create the Opus decoder: {e}"))?;
+
+    const MAX_FRAME_SAMPLES: usize = 5760;
+    let mut pcm_buf = vec![0.0f32; MAX_FRAME_SAMPLES * channels as usize];
+    let mut all_samples: Vec<f32> = Vec::new();
+
+    loop {
+        let packet = match format.next_packet() {
+            Ok(packet) => packet,
+            Err(SymphoniaError::IoError(_)) => break,
+            Err(SymphoniaError::ResetRequired) => break,
+            Err(e) => return Err(format!("Error while reading the WebM stream: {e}")),
+        };
+
+        while !format.metadata().is_latest() {
+            format.metadata().pop();
+        }
+
+        if packet.track_id() != track_id || packet.data.is_empty() {
+            continue;
+        }
+
+        let decoded = decoder
+            .decode(&packet.data, MAX_FRAME_SAMPLES, &mut pcm_buf)
+            .map_err(|e| format!("Opus decode error: {e}"))?;
+        all_samples.extend_from_slice(&pcm_buf[..decoded * channels as usize]);
+    }
+
+    let skip_samples = (pre_skip as usize) * channels as usize;
+    if skip_samples < all_samples.len() {
+        all_samples.drain(0..skip_samples);
+    }
+
+    if all_samples.is_empty() {
+        return Err("No audio data could be decoded from this WebM file's Opus track.".to_string());
+    }
+
+    Ok(Some((all_samples, 48000, channels)))
+}
+
+fn parse_opus_head(data: &[u8]) -> Option<(u16, u16)> {
+    if data.len() < 19 || &data[0..8] != b"OpusHead" {
+        return None;
+    }
+    let channels = data[9] as u16;
+    let pre_skip = u16::from_le_bytes([data[10], data[11]]);
+    if channels == 0 {
+        return None;
+    }
+    Some((channels, pre_skip))
+}
+
 const AAC_SUPPORTED_RATES: [u32; 9] = [8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000];
 
 fn nearest_supported_rate(rate: u32, table: &[u32]) -> u32 {
@@ -1113,7 +1127,7 @@ fn encode_wma(samples: &[f32], sample_rate: u32, channels: u16, output_path: &Pa
 }
 
 #[tauri::command]
-fn convert_audio(
+async fn convert_audio(
     app: AppHandle,
     source_path: String,
     output_name: String,
@@ -1121,6 +1135,7 @@ fn convert_audio(
     preserve_date: bool,
     overwrite: bool,
 ) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
     let report = |percent: u8| {
         let _ = app.emit("conversion-progress", percent);
     };
@@ -1173,50 +1188,396 @@ fn convert_audio(
     report(100);
 
     Ok(output_path.to_string_lossy().to_string())
+    })
+    .await
+    .map_err(|e| format!("Conversion task panicked: {e}"))?
 }
 
-/*——/ Video Conversion /—————————————————————————————————————*/
-/*
-   MOV <-> MP4 only, and it's a remux, not a re-encode: IMFSourceReader is
-   told to hand back every selected stream's *native* compressed media
-   type (MF_READWRITE_DISABLE_CONVERTERS, plus setting each stream's
-   current type to exactly its native type, which is what stops the
-   reader from quietly inserting a decoder MFT), and IMFSinkWriter is
-   given that same native type on AddStream/SetInputMediaType, so no
-   decoder or encoder ever actually runs; every sample is copied straight
-   through. This only works because MOV and MP4 are the same underlying
-   ISO Base Media File Format lineage (MP4 is the MPEG-standardized
-   descendant of QuickTime's own container), so a stream that's valid in
-   one is valid in the other with no transcoding required. That's the
-   same reasoning already used above for why symphonia-format-isomp4 can
-   pull audio out of a .mov file with zero mov-specific code.
 
-   The catch: Windows ships a Media Foundation sink for .mp4 (and .m4a,
-   used above) out of the box, but there's no registered byte-stream
-   handler for .mov, so asking MFCreateSinkWriterFromURL for a .mov
-   output fails outright rather than producing a bad file. The
-   workaround is the same trick already established for exactly this
-   Windows limitation: remux through the MP4 sink to a temporary ".mp4"
-   path, then rename it to the requested ".mov" name once Finalize()
-   succeeds. The bytes on disk are genuinely ISO-BMFF/MPEG-4 either way,
-   which is what real .mov files are too, so the renamed file opens
-   correctly in standards-compliant players.
+fn is_webm_legal_codec(codec_id: &str) -> bool {
+    matches!(
+        codec_id,
+        "V_VP8" | "V_VP9" | "V_AV1" | "A_VORBIS" | "A_OPUS"
+    )
+}
 
-   This has been reasoned through against the actual windows-rs 0.62
-   Media Foundation bindings (function signatures, GUIDs, and the
-   ReadSample(MF_SOURCE_READER_ANY_STREAM) end-of-presentation contract
-   were all checked against the real crate source, not assumed from
-   memory), but hasn't been run against a real Windows machine the way
-   the audio paths above explicitly have been. Two things to watch for
-   if it doesn't work first try: whether MFCreateSourceReaderFromURL can
-   open an older QuickTime-authored .mov as the *source* at all (older
-   files can start with a bare moov/wide/free atom instead of the ftyp
-   atom mp4 always leads with, the same caveat already flagged for
-   Symphonia's audio-only mov path above), and whether every codec this
-   ends up being pointed at is one IMFSinkWriter's MP4 sink is willing to
-   multiplex (H.264/HEVC video and AAC audio are the safe, well-trodden
-   case).
-*/
+fn mkv_codec_from_mf(
+    major_type: &windows::core::GUID,
+    subtype: &windows::core::GUID,
+    native_type: &windows::Win32::Media::MediaFoundation::IMFMediaType,
+) -> Result<(String, Vec<u8>), String> {
+    use windows::Win32::Media::MediaFoundation::{
+        MFAudioFormat_AAC, MFAudioFormat_MP3, MFMediaType_Video, MFVideoFormat_H264,
+        MFVideoFormat_HEVC, MF_MT_MPEG_SEQUENCE_HEADER, MF_MT_USER_DATA,
+    };
+
+    let get_blob = |guid: &windows::core::GUID| -> Vec<u8> {
+        let size = match unsafe { native_type.GetBlobSize(guid) } {
+            Ok(s) if s > 0 => s,
+            _ => return Vec::new(),
+        };
+        let mut buf = vec![0u8; size as usize];
+        if unsafe { native_type.GetBlob(guid, &mut buf, None) }.is_err() {
+            return Vec::new();
+        }
+        buf
+    };
+
+    if *major_type == MFMediaType_Video {
+        if *subtype == MFVideoFormat_H264 {
+            let extradata = get_blob(&MF_MT_MPEG_SEQUENCE_HEADER);
+            if extradata.is_empty() {
+                return Err("This H.264 track doesn't expose a sequence header, so it can't be repackaged into MKV without re-encoding.".to_string());
+            }
+            let avcc = build_avcc_from_annexb(&extradata)?;
+            return Ok(("V_MPEG4/ISO/AVC".to_string(), avcc));
+        }
+        if *subtype == MFVideoFormat_HEVC {
+            return Err("HEVC (H.265) to MKV isn't supported yet, only H.264. Tell me if you need this and I'll add proper hvcC handling.".to_string());
+        }
+        return Err("This file's video codec isn't H.264 or HEVC, so it can't be repackaged into MKV without re-encoding.".to_string());
+    }
+
+    if *subtype == MFAudioFormat_AAC {
+        let raw = get_blob(&MF_MT_USER_DATA);
+        let asc = if raw.len() > 12 { raw[12..].to_vec() } else { raw };
+        if asc.is_empty() {
+            return Err("This AAC track's decoder configuration couldn't be read, so it can't be repackaged into MKV without re-encoding.".to_string());
+        }
+        return Ok(("A_AAC".to_string(), asc));
+    }
+    if *subtype == MFAudioFormat_MP3 {
+        return Ok(("A_MPEG/L3".to_string(), Vec::new()));
+    }
+
+    Err("This file's audio codec isn't AAC or MP3, so it can't be repackaged into MKV without re-encoding.".to_string())
+}
+
+fn split_annexb_nalus(data: &[u8]) -> Vec<&[u8]> {
+    let mut starts: Vec<(usize, usize)> = Vec::new();
+    let mut i = 0usize;
+    while i + 2 < data.len() {
+        if data[i] == 0 && data[i + 1] == 0 {
+            if data[i + 2] == 1 {
+                starts.push((i, 3));
+                i += 3;
+                continue;
+            } else if i + 3 < data.len() && data[i + 2] == 0 && data[i + 3] == 1 {
+                starts.push((i, 4));
+                i += 4;
+                continue;
+            }
+        }
+        i += 1;
+    }
+    if starts.is_empty() {
+        return Vec::new();
+    }
+    let mut out = Vec::with_capacity(starts.len());
+    for idx in 0..starts.len() {
+        let (start, code_len) = starts[idx];
+        let nalu_start = start + code_len;
+        let nalu_end = if idx + 1 < starts.len() { starts[idx + 1].0 } else { data.len() };
+        if nalu_end > nalu_start {
+            out.push(&data[nalu_start..nalu_end]);
+        }
+    }
+    out
+}
+
+fn annexb_to_length_prefixed(data: &[u8]) -> Vec<u8> {
+    let nalus = split_annexb_nalus(data);
+    if nalus.is_empty() {
+        return data.to_vec();
+    }
+    let mut out = Vec::with_capacity(data.len() + nalus.len() * 4);
+    for nalu in nalus {
+        out.extend_from_slice(&(nalu.len() as u32).to_be_bytes());
+        out.extend_from_slice(nalu);
+    }
+    out
+}
+
+fn build_avcc_from_annexb(extradata: &[u8]) -> Result<Vec<u8>, String> {
+    let nalus = split_annexb_nalus(extradata);
+    if nalus.is_empty() {
+        return Err("The H.264 sequence header wasn't in the expected Annex-B start-code format.".to_string());
+    }
+    let mut sps_list: Vec<&[u8]> = Vec::new();
+    let mut pps_list: Vec<&[u8]> = Vec::new();
+    for nalu in &nalus {
+        if nalu.is_empty() {
+            continue;
+        }
+        match nalu[0] & 0x1F {
+            7 => sps_list.push(nalu),
+            8 => pps_list.push(nalu),
+            _ => {}
+        }
+    }
+    let sps = sps_list
+        .first()
+        .ok_or_else(|| "No SPS NAL unit found in this H.264 track's sequence header.".to_string())?;
+    if sps.len() < 4 {
+        return Err("This H.264 track's SPS NAL unit is too short to read profile/level from.".to_string());
+    }
+    if pps_list.is_empty() {
+        return Err("No PPS NAL unit found in this H.264 track's sequence header.".to_string());
+    }
+
+    let mut out = Vec::new();
+    out.push(1u8);
+    out.push(sps[1]);
+    out.push(sps[2]);
+    out.push(sps[3]);
+    out.push(0xFF);
+    out.push(0xE0 | (sps_list.len() as u8 & 0x1F));
+    for s in &sps_list {
+        out.extend_from_slice(&(s.len() as u16).to_be_bytes());
+        out.extend_from_slice(s);
+    }
+    out.push(pps_list.len() as u8);
+    for p in &pps_list {
+        out.extend_from_slice(&(p.len() as u16).to_be_bytes());
+        out.extend_from_slice(p);
+    }
+    Ok(out)
+}
+
+fn nal_length_size_from_avcc(avcc: &[u8]) -> usize {
+    if avcc.len() > 4 {
+        ((avcc[4] & 0x03) + 1) as usize
+    } else {
+        4
+    }
+}
+
+fn length_prefixed_to_annexb(data: &[u8], length_size: usize) -> Vec<u8> {
+    let mut out = Vec::with_capacity(data.len() + 16);
+    let mut i = 0usize;
+    while i + length_size <= data.len() {
+        let mut len: usize = 0;
+        for b in 0..length_size {
+            len = (len << 8) | data[i + b] as usize;
+        }
+        i += length_size;
+        if len == 0 || i + len > data.len() {
+            break;
+        }
+        out.extend_from_slice(&[0, 0, 0, 1]);
+        out.extend_from_slice(&data[i..i + len]);
+        i += len;
+    }
+    out
+}
+
+fn avcc_extradata_to_annexb(avcc: &[u8]) -> Result<Vec<u8>, String> {
+    if avcc.len() < 6 {
+        return Err("This H.264 track's decoder configuration record is too short to read.".to_string());
+    }
+    let mut out = Vec::new();
+    let mut pos = 5usize;
+
+    let num_sps = (avcc[pos] & 0x1F) as usize;
+    pos += 1;
+    for _ in 0..num_sps {
+        if pos + 2 > avcc.len() {
+            return Err("This H.264 track's decoder configuration record is truncated (SPS length).".to_string());
+        }
+        let len = u16::from_be_bytes([avcc[pos], avcc[pos + 1]]) as usize;
+        pos += 2;
+        if pos + len > avcc.len() {
+            return Err("This H.264 track's decoder configuration record is truncated (SPS data).".to_string());
+        }
+        out.extend_from_slice(&[0, 0, 0, 1]);
+        out.extend_from_slice(&avcc[pos..pos + len]);
+        pos += len;
+    }
+
+    if pos >= avcc.len() {
+        return Err("This H.264 track's decoder configuration record is missing its PPS section.".to_string());
+    }
+    let num_pps = avcc[pos] as usize;
+    pos += 1;
+    for _ in 0..num_pps {
+        if pos + 2 > avcc.len() {
+            return Err("This H.264 track's decoder configuration record is truncated (PPS length).".to_string());
+        }
+        let len = u16::from_be_bytes([avcc[pos], avcc[pos + 1]]) as usize;
+        pos += 2;
+        if pos + len > avcc.len() {
+            return Err("This H.264 track's decoder configuration record is truncated (PPS data).".to_string());
+        }
+        out.extend_from_slice(&[0, 0, 0, 1]);
+        out.extend_from_slice(&avcc[pos..pos + len]);
+        pos += len;
+    }
+
+    Ok(out)
+}
+
+fn sps_pps_from_bitstream(sample: &[u8]) -> Option<Vec<u8>> {
+    fn nals_annexb(data: &[u8]) -> Vec<&[u8]> {
+        let mut starts = Vec::new();
+        let mut i = 0;
+        while i + 3 <= data.len() {
+            if data[i..i + 3] == [0, 0, 1] {
+                starts.push(i + 3);
+                i += 3;
+            } else {
+                i += 1;
+            }
+        }
+        starts.windows(2).map(|w| &data[w[0]..w[1]]).chain(
+            starts.last().map(|&s| &data[s..])
+        ).collect()
+    }
+
+    let nals = nals_annexb(sample);
+    let mut sps: Option<&[u8]> = None;
+    let mut pps: Option<&[u8]> = None;
+    for nal in nals {
+        if nal.is_empty() { continue; }
+        match nal[0] & 0x1F {
+            7 => sps = Some(nal),
+            8 => pps = Some(nal),
+            _ => {}
+        }
+    }
+    let (sps, pps) = (sps?, pps?);
+    let mut out = Vec::new();
+    out.extend_from_slice(&[0, 0, 0, 1]);
+    out.extend_from_slice(sps);
+    out.extend_from_slice(&[0, 0, 0, 1]);
+    out.extend_from_slice(pps);
+    Some(out)
+}
+
+fn remux_matroska(source_path: &Path, output_path: &Path, target_ext: &str) -> Result<(), String> {
+    let raw = fs::read(source_path).map_err(|e| format!("Couldn't read the source file: {e}"))?;
+    let tracks = ebml::parse_tracks(&raw).map_err(|e| {
+        format!("This doesn't look like a valid Matroska/WebM file (couldn't read its Tracks element): {e}")
+    })?;
+
+    if tracks.is_empty() {
+        return Err("No tracks found in this file's Tracks element.".to_string());
+    }
+
+    if target_ext == "webm" {
+        if let Some(bad) = tracks.iter().find(|t| !is_webm_legal_codec(&t.codec_id)) {
+            return Err(format!(
+                "Can't remux to WEBM: this file's \"{}\" track uses {}, which isn't a codec WebM's own spec allows (only VP8/VP9/AV1 video and Vorbis/Opus audio are legal in a .webm file). Turning this into real WEBM would require actually re-encoding the video/audio, not just repackaging it, which isn't implemented.",
+                if bad.track_type == 1 { "video" } else { "audio" },
+                bad.codec_id
+            ));
+        }
+    }
+
+    let file = fs::File::open(source_path).map_err(|e| format!("Couldn't open the source file: {e}"))?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+    let mut hint = Hint::new();
+    if let Some(ext) = source_path.extension().and_then(|e| e.to_str()) {
+        hint.with_extension(ext);
+    }
+    let probed = symphonia::default::get_probe()
+        .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())
+        .map_err(|e| format!("Couldn't parse this file's media structure: {e}"))?;
+    let mut format = probed.format;
+
+    struct Pkt { track_number: u64, ts_ms: i64, data: Vec<u8> }
+    let mut packets: Vec<Pkt> = Vec::new();
+    loop {
+        match format.next_packet() {
+            Ok(p) => packets.push(Pkt {
+                track_number: p.track_id() as u64,
+                ts_ms: p.ts() as i64,
+                data: p.data.to_vec(),
+            }),
+            Err(SymphoniaError::IoError(_)) => break,
+            Err(SymphoniaError::ResetRequired) => break,
+            Err(e) => return Err(format!("Error while reading packets: {e}")),
+        }
+    }
+    if packets.is_empty() {
+        return Err("No decodable packets were found in this file.".to_string());
+    }
+
+    let mut tracks_body = Vec::new();
+    for t in &tracks {
+        let mut te = Vec::new();
+        te.extend(ebml::build_elem(ebml::ID_TRACK_NUMBER, &ebml::uint_body(t.number)));
+        te.extend(ebml::build_elem(ebml::ID_TRACK_UID, &ebml::uint_body(t.number)));
+        te.extend(ebml::build_elem(ebml::ID_TRACK_TYPE, &ebml::uint_body(t.track_type)));
+        te.extend(ebml::build_elem(ebml::ID_CODEC_ID, t.codec_id.as_bytes()));
+        if !t.codec_private.is_empty() {
+            te.extend(ebml::build_elem(ebml::ID_CODEC_PRIVATE, &t.codec_private));
+        }
+        if let Some(d) = t.codec_delay_ns {
+            te.extend(ebml::build_elem(ebml::ID_CODEC_DELAY, &ebml::uint_body(d)));
+        }
+        if let Some(p) = t.seek_preroll_ns {
+            te.extend(ebml::build_elem(ebml::ID_SEEK_PREROLL, &ebml::uint_body(p)));
+        }
+        if let (Some(w), Some(h)) = (t.width, t.height) {
+            let mut video_body = Vec::new();
+            video_body.extend(ebml::build_elem(ebml::ID_PIXEL_WIDTH, &ebml::uint_body(w)));
+            video_body.extend(ebml::build_elem(ebml::ID_PIXEL_HEIGHT, &ebml::uint_body(h)));
+            te.extend(ebml::build_elem(ebml::ID_VIDEO, &video_body));
+        }
+        if let (Some(rate), Some(ch)) = (t.sample_rate, t.channels) {
+            let mut audio_body = Vec::new();
+            audio_body.extend(ebml::build_elem(ebml::ID_SAMPLING_FREQUENCY, &ebml::float_body_f64(rate)));
+            audio_body.extend(ebml::build_elem(ebml::ID_CHANNELS, &ebml::uint_body(ch)));
+            te.extend(ebml::build_elem(ebml::ID_AUDIO, &audio_body));
+        }
+        tracks_body.extend(ebml::build_elem(ebml::ID_TRACK_ENTRY, &te));
+    }
+
+    let total_duration_ms = packets.iter().map(|p| p.ts_ms).max().unwrap_or(0) as f64 + 20.0;
+    let mut info_body = Vec::new();
+    info_body.extend(ebml::build_elem(ebml::ID_TIMESTAMP_SCALE, &ebml::uint_body(1_000_000)));
+    info_body.extend(ebml::build_elem(ebml::ID_DURATION, &ebml::float_body_f64(total_duration_ms)));
+    info_body.extend(ebml::build_elem(ebml::ID_MUXING_APP, b"fTools"));
+    info_body.extend(ebml::build_elem(ebml::ID_WRITING_APP, b"fTools"));
+
+    let mut clusters_body: Vec<u8> = Vec::new();
+    let mut i = 0usize;
+    while i < packets.len() {
+        let cluster_start_ts = packets[i].ts_ms;
+        let mut cluster_body = Vec::new();
+        cluster_body.extend(ebml::build_elem(ebml::ID_TIMESTAMP, &ebml::uint_body(cluster_start_ts.max(0) as u64)));
+        while i < packets.len() && packets[i].ts_ms - cluster_start_ts < 1000 {
+            let rel = (packets[i].ts_ms - cluster_start_ts) as i16;
+            let block = ebml::simple_block_body(packets[i].track_number, rel, true, &packets[i].data);
+            cluster_body.extend(ebml::build_elem(ebml::ID_SIMPLE_BLOCK, &block));
+            i += 1;
+        }
+        clusters_body.extend(ebml::build_elem(ebml::ID_CLUSTER, &cluster_body));
+    }
+
+    let mut segment_body = Vec::new();
+    segment_body.extend(ebml::build_elem(ebml::ID_INFO, &info_body));
+    segment_body.extend(ebml::build_elem(ebml::ID_TRACKS, &tracks_body));
+    segment_body.extend(clusters_body);
+
+    let doctype: &[u8] = if target_ext == "webm" { b"webm" } else { b"matroska" };
+    let mut ebml_header_body = Vec::new();
+    ebml_header_body.extend(ebml::build_elem(ebml::ID_EBML_VERSION, &ebml::uint_body(1)));
+    ebml_header_body.extend(ebml::build_elem(ebml::ID_EBML_READ_VERSION, &ebml::uint_body(1)));
+    ebml_header_body.extend(ebml::build_elem(ebml::ID_EBML_MAX_ID_LENGTH, &ebml::uint_body(4)));
+    ebml_header_body.extend(ebml::build_elem(ebml::ID_EBML_MAX_SIZE_LENGTH, &ebml::uint_body(8)));
+    ebml_header_body.extend(ebml::build_elem(ebml::ID_DOCTYPE, doctype));
+    ebml_header_body.extend(ebml::build_elem(ebml::ID_DOCTYPE_VERSION, &ebml::uint_body(2)));
+    ebml_header_body.extend(ebml::build_elem(ebml::ID_DOCTYPE_READ_VERSION, &ebml::uint_body(2)));
+
+    let mut out = fs::File::create(output_path).map_err(|e| format!("Couldn't create the output file: {e}"))?;
+    out.write_all(&ebml::build_elem(ebml::ID_EBML, &ebml_header_body))
+        .map_err(|e| format!("Couldn't write the output file: {e}"))?;
+    out.write_all(&ebml::build_elem(ebml::ID_SEGMENT, &segment_body))
+        .map_err(|e| format!("Couldn't write the output file: {e}"))?;
+
+    Ok(())
+}
 
 fn remux_video_container(source_path: &Path, output_path: &Path, target_ext: &str) -> Result<(), String> {
     use std::collections::HashMap;
@@ -1229,8 +1590,6 @@ fn remux_video_container(source_path: &Path, output_path: &Path, target_ext: &st
     };
     use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
 
-    // Windows has no built-in .mov sink: remux through the MP4 sink to a
-    // temp file in the same folder, then rename it to the .mov name.
     let (write_path, needs_rename) = if target_ext == "mov" {
         (output_path.with_extension("__ftools_mov_tmp__.mp4"), true)
     } else {
@@ -1367,8 +1726,588 @@ fn remux_video_container(source_path: &Path, output_path: &Path, target_ext: &st
     Ok(())
 }
 
+fn remux_container_to_mkv(source_path: &Path, output_path: &Path) -> Result<(), String> {
+    use windows::core::HSTRING;
+    use windows::Win32::Media::MediaFoundation::{
+        IMFAttributes, IMFMediaType, IMFSample, IMFSourceReader, MFCreateAttributes,
+        MFCreateSourceReaderFromURL, MFMediaType_Audio, MFMediaType_Video,
+        MFSampleExtension_CleanPoint, MFShutdown, MFStartup, MF_MT_AUDIO_NUM_CHANNELS,
+        MF_MT_AUDIO_SAMPLES_PER_SECOND, MF_MT_FRAME_SIZE, MF_MT_MAJOR_TYPE, MF_MT_SUBTYPE,
+        MF_READWRITE_DISABLE_CONVERTERS, MF_SOURCE_READERF_ENDOFSTREAM,
+        MF_SOURCE_READER_ALL_STREAMS, MF_SOURCE_READER_ANY_STREAM, MF_VERSION, MFSTARTUP_FULL,
+    };
+    use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
+
+    struct TrackOut {
+        number: u64,
+        codec_id: String,
+        codec_private: Vec<u8>,
+        track_type: u64,
+        width: Option<u64>,
+        height: Option<u64>,
+        sample_rate: Option<f64>,
+        channels: Option<u64>,
+    }
+    struct Pkt { track_number: u64, ts_100ns: i64, keyframe: bool, data: Vec<u8> }
+
+    let source_url = HSTRING::from(source_path.to_string_lossy().as_ref());
+
+    let handle = std::thread::spawn(move || -> Result<(Vec<TrackOut>, Vec<Pkt>), String> {
+        unsafe {
+            CoInitializeEx(None, COINIT_APARTMENTTHREADED)
+                .ok()
+                .map_err(|e| format!("Couldn't initialize COM on the remux thread: {e}"))?;
+
+            let result: Result<(Vec<TrackOut>, Vec<Pkt>), String> = (|| {
+                MFStartup(MF_VERSION, MFSTARTUP_FULL).map_err(|e| format!("Couldn't start Media Foundation: {e}"))?;
+
+                let inner: Result<(Vec<TrackOut>, Vec<Pkt>), String> = (|| {
+                    let mut reader_attrs: Option<IMFAttributes> = None;
+                    MFCreateAttributes(&mut reader_attrs, 1).map_err(|e| e.to_string())?;
+                    let reader_attrs = reader_attrs
+                        .ok_or_else(|| "Media Foundation didn't return an attributes object.".to_string())?;
+                    reader_attrs
+                        .SetUINT32(&MF_READWRITE_DISABLE_CONVERTERS, 1)
+                        .map_err(|e| e.to_string())?;
+
+                    let reader: IMFSourceReader = MFCreateSourceReaderFromURL(&source_url, &reader_attrs)
+                        .map_err(|e| format!("Couldn't open the source file: {e}"))?;
+
+                    reader
+                        .SetStreamSelection(MF_SOURCE_READER_ALL_STREAMS.0 as u32, false)
+                        .map_err(|e| e.to_string())?;
+
+                    let mut tracks: Vec<TrackOut> = Vec::new();
+                    let mut track_number_by_stream: std::collections::HashMap<u32, u64> = std::collections::HashMap::new();
+                    let mut stream_index: u32 = 0;
+                    let mut next_track_number: u64 = 1;
+                    loop {
+                        let native_type: IMFMediaType = match reader.GetNativeMediaType(stream_index, 0) {
+                            Ok(t) => t,
+                            Err(_) => break,
+                        };
+
+                        let major_type = native_type.GetGUID(&MF_MT_MAJOR_TYPE).map_err(|e| e.to_string())?;
+                        if major_type == MFMediaType_Video || major_type == MFMediaType_Audio {
+                            let subtype = native_type.GetGUID(&MF_MT_SUBTYPE).map_err(|e| e.to_string())?;
+                            let (codec_id, codec_private) = mkv_codec_from_mf(&major_type, &subtype, &native_type)?;
+
+                            reader.SetStreamSelection(stream_index, true).map_err(|e| e.to_string())?;
+                            reader.SetCurrentMediaType(stream_index, None, &native_type).map_err(|e| {
+                                format!("This file's stream {stream_index} uses a format that can't be copied through as-is: {e}")
+                            })?;
+
+                            let track_number = next_track_number;
+                            next_track_number += 1;
+                            track_number_by_stream.insert(stream_index, track_number);
+
+                            if major_type == MFMediaType_Video {
+                                let packed = native_type.GetUINT64(&MF_MT_FRAME_SIZE).unwrap_or(0);
+                                tracks.push(TrackOut {
+                                    number: track_number, codec_id, codec_private, track_type: 1,
+                                    width: Some(packed >> 32), height: Some(packed & 0xFFFF_FFFF),
+                                    sample_rate: None, channels: None,
+                                });
+                            } else {
+                                let rate = native_type.GetUINT32(&MF_MT_AUDIO_SAMPLES_PER_SECOND).unwrap_or(0) as f64;
+                                let channels = native_type.GetUINT32(&MF_MT_AUDIO_NUM_CHANNELS).unwrap_or(0) as u64;
+                                tracks.push(TrackOut {
+                                    number: track_number, codec_id, codec_private, track_type: 2,
+                                    width: None, height: None,
+                                    sample_rate: Some(rate), channels: Some(channels),
+                                });
+                            }
+                        }
+                        stream_index += 1;
+                    }
+
+                    if tracks.is_empty() {
+                        return Err("Couldn't find a video or audio stream to copy in this file.".to_string());
+                    }
+
+                    let video_track_numbers: std::collections::HashSet<u64> =
+                        tracks.iter().filter(|t| t.track_type == 1).map(|t| t.number).collect();
+
+                    let mut packets: Vec<Pkt> = Vec::new();
+                    loop {
+                        let mut actual_stream_index: u32 = 0;
+                        let mut stream_flags: u32 = 0;
+                        let mut timestamp: i64 = 0;
+                        let mut sample: Option<IMFSample> = None;
+
+                        reader
+                            .ReadSample(
+                                MF_SOURCE_READER_ANY_STREAM.0 as u32,
+                                0,
+                                Some(&mut actual_stream_index),
+                                Some(&mut stream_flags),
+                                Some(&mut timestamp),
+                                Some(&mut sample),
+                            )
+                            .map_err(|e| format!("Error while reading media data: {e}"))?;
+
+                        if stream_flags & (MF_SOURCE_READERF_ENDOFSTREAM.0 as u32) != 0 {
+                            break;
+                        }
+
+                        if let Some(sample) = sample {
+                            if let Some(&track_number) = track_number_by_stream.get(&actual_stream_index) {
+                                let keyframe = sample
+                                    .GetUINT32(&MFSampleExtension_CleanPoint)
+                                    .map(|v| v != 0)
+                                    .unwrap_or(true);
+
+                                let buffer = sample.ConvertToContiguousBuffer().map_err(|e| e.to_string())?;
+                                let mut ptr: *mut u8 = std::ptr::null_mut();
+                                let mut len: u32 = 0;
+                                buffer.Lock(&mut ptr, None, Some(&mut len)).map_err(|e| e.to_string())?;
+                                let mut data = std::slice::from_raw_parts(ptr, len as usize).to_vec();
+                                buffer.Unlock().map_err(|e| e.to_string())?;
+                                if video_track_numbers.contains(&track_number) {
+                                    data = annexb_to_length_prefixed(&data);
+                                }
+
+                                packets.push(Pkt { track_number, ts_100ns: timestamp, keyframe, data });
+                            }
+                        }
+                    }
+
+                    Ok((tracks, packets))
+                })();
+
+                let _ = MFShutdown();
+                inner
+            })();
+
+            CoUninitialize();
+            result
+        }
+    });
+
+    let (tracks, mut packets) = handle
+        .join()
+        .unwrap_or_else(|_| Err("The Media Foundation remux thread panicked.".to_string()))?;
+
+    let mut tracks_body = Vec::new();
+    for t in &tracks {
+        let mut te = Vec::new();
+        te.extend(ebml::build_elem(ebml::ID_TRACK_NUMBER, &ebml::uint_body(t.number)));
+        te.extend(ebml::build_elem(ebml::ID_TRACK_UID, &ebml::uint_body(t.number)));
+        te.extend(ebml::build_elem(ebml::ID_TRACK_TYPE, &ebml::uint_body(t.track_type)));
+        te.extend(ebml::build_elem(ebml::ID_CODEC_ID, t.codec_id.as_bytes()));
+        if !t.codec_private.is_empty() {
+            te.extend(ebml::build_elem(ebml::ID_CODEC_PRIVATE, &t.codec_private));
+        }
+        if let (Some(w), Some(h)) = (t.width, t.height) {
+            let mut video_body = Vec::new();
+            video_body.extend(ebml::build_elem(ebml::ID_PIXEL_WIDTH, &ebml::uint_body(w)));
+            video_body.extend(ebml::build_elem(ebml::ID_PIXEL_HEIGHT, &ebml::uint_body(h)));
+            te.extend(ebml::build_elem(ebml::ID_VIDEO, &video_body));
+        }
+        if let (Some(rate), Some(ch)) = (t.sample_rate, t.channels) {
+            let mut audio_body = Vec::new();
+            audio_body.extend(ebml::build_elem(ebml::ID_SAMPLING_FREQUENCY, &ebml::float_body_f64(rate)));
+            audio_body.extend(ebml::build_elem(ebml::ID_CHANNELS, &ebml::uint_body(ch)));
+            te.extend(ebml::build_elem(ebml::ID_AUDIO, &audio_body));
+        }
+        tracks_body.extend(ebml::build_elem(ebml::ID_TRACK_ENTRY, &te));
+    }
+
+    packets.sort_by_key(|p| p.ts_100ns);
+    let total_duration_ms = packets.iter().map(|p| p.ts_100ns / 10_000).max().unwrap_or(0) as f64 + 20.0;
+    let mut info_body = Vec::new();
+    info_body.extend(ebml::build_elem(ebml::ID_TIMESTAMP_SCALE, &ebml::uint_body(1_000_000)));
+    info_body.extend(ebml::build_elem(ebml::ID_DURATION, &ebml::float_body_f64(total_duration_ms)));
+    info_body.extend(ebml::build_elem(ebml::ID_MUXING_APP, b"fTools"));
+    info_body.extend(ebml::build_elem(ebml::ID_WRITING_APP, b"fTools"));
+
+    let mut clusters_body: Vec<u8> = Vec::new();
+    let mut i = 0usize;
+    while i < packets.len() {
+        let cluster_start_ms = packets[i].ts_100ns / 10_000;
+        let mut cluster_body = Vec::new();
+        cluster_body.extend(ebml::build_elem(ebml::ID_TIMESTAMP, &ebml::uint_body(cluster_start_ms.max(0) as u64)));
+        while i < packets.len() && (packets[i].ts_100ns / 10_000) - cluster_start_ms < 1000 {
+            let ts_ms = packets[i].ts_100ns / 10_000;
+            let rel = (ts_ms - cluster_start_ms) as i16;
+            let block = ebml::simple_block_body(packets[i].track_number, rel, packets[i].keyframe, &packets[i].data);
+            cluster_body.extend(ebml::build_elem(ebml::ID_SIMPLE_BLOCK, &block));
+            i += 1;
+        }
+        clusters_body.extend(ebml::build_elem(ebml::ID_CLUSTER, &cluster_body));
+    }
+
+    let mut segment_body = Vec::new();
+    segment_body.extend(ebml::build_elem(ebml::ID_INFO, &info_body));
+    segment_body.extend(ebml::build_elem(ebml::ID_TRACKS, &tracks_body));
+    segment_body.extend(clusters_body);
+
+    let mut ebml_header_body = Vec::new();
+    ebml_header_body.extend(ebml::build_elem(ebml::ID_EBML_VERSION, &ebml::uint_body(1)));
+    ebml_header_body.extend(ebml::build_elem(ebml::ID_EBML_READ_VERSION, &ebml::uint_body(1)));
+    ebml_header_body.extend(ebml::build_elem(ebml::ID_EBML_MAX_ID_LENGTH, &ebml::uint_body(4)));
+    ebml_header_body.extend(ebml::build_elem(ebml::ID_EBML_MAX_SIZE_LENGTH, &ebml::uint_body(8)));
+    ebml_header_body.extend(ebml::build_elem(ebml::ID_DOCTYPE, b"matroska"));
+    ebml_header_body.extend(ebml::build_elem(ebml::ID_DOCTYPE_VERSION, &ebml::uint_body(2)));
+    ebml_header_body.extend(ebml::build_elem(ebml::ID_DOCTYPE_READ_VERSION, &ebml::uint_body(2)));
+
+    let mut out = fs::File::create(output_path).map_err(|e| format!("Couldn't create the output file: {e}"))?;
+    out.write_all(&ebml::build_elem(ebml::ID_EBML, &ebml_header_body))
+        .map_err(|e| format!("Couldn't write the output file: {e}"))?;
+    out.write_all(&ebml::build_elem(ebml::ID_SEGMENT, &segment_body))
+        .map_err(|e| format!("Couldn't write the output file: {e}"))?;
+
+    Ok(())
+}
+
+fn remux_mkv_to_container(source_path: &Path, output_path: &Path, target_ext: &str) -> Result<(), String> {
+    use windows::core::HSTRING;
+    use windows::Win32::Media::MediaFoundation::{
+        IMFAttributes, MFAudioFormat_AAC, MFAudioFormat_MP3, MFCreateAttributes, MFCreateMediaType,
+        MFCreateMemoryBuffer, MFCreateSample, MFCreateSinkWriterFromURL, MFMediaType_Audio,
+        MFMediaType_Video, MFSampleExtension_CleanPoint, MFShutdown, MFStartup, MFVideoFormat_H264,
+        MFVideoInterlace_Progressive, MF_MT_AUDIO_AVG_BYTES_PER_SECOND, MF_MT_AUDIO_BLOCK_ALIGNMENT,
+        MF_MT_AUDIO_NUM_CHANNELS, MF_MT_AVG_BITRATE,
+        MF_MT_AUDIO_SAMPLES_PER_SECOND, MF_MT_FRAME_RATE, MF_MT_FRAME_SIZE, MF_MT_INTERLACE_MODE,
+        MF_MT_MAJOR_TYPE, MF_MT_MPEG_SEQUENCE_HEADER, MF_MT_PIXEL_ASPECT_RATIO, MF_MT_SUBTYPE,
+        MF_MT_USER_DATA, MF_SINK_WRITER_DISABLE_THROTTLING,
+        MF_VERSION, MFSTARTUP_FULL,
+    };
+    use windows::Win32::System::Com::{CoInitializeEx, CoUninitialize, COINIT_APARTMENTTHREADED};
+
+    let raw = fs::read(source_path).map_err(|e| format!("Couldn't read the source file: {e}"))?;
+    let tracks = ebml::parse_tracks(&raw).map_err(|e| {
+        format!("This doesn't look like a valid Matroska file (couldn't read its Tracks element): {e}")
+    })?;
+    if tracks.is_empty() {
+        return Err("No tracks found in this file's Tracks element.".to_string());
+    }
+    for t in &tracks {
+        let ok = matches!(t.codec_id.as_str(), "V_MPEG4/ISO/AVC" | "V_MPEGH/ISO/HEVC" | "A_AAC" | "A_MPEG/L3");
+        if !ok {
+            return Err(format!(
+                "Can't remux to {}: this file's \"{}\" track uses {}, which {} can't hold without re-encoding.",
+                target_ext.to_uppercase(),
+                if t.track_type == 1 { "video" } else { "audio" },
+                t.codec_id,
+                target_ext.to_uppercase()
+            ));
+        }
+    }
+
+    let file = fs::File::open(source_path).map_err(|e| format!("Couldn't open the source file: {e}"))?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+    let mut hint = Hint::new();
+    if let Some(ext) = source_path.extension().and_then(|e| e.to_str()) {
+        hint.with_extension(ext);
+    }
+    let probed = symphonia::default::get_probe()
+        .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())
+        .map_err(|e| format!("Couldn't parse this file's media structure: {e}"))?;
+    let mut format = probed.format;
+
+    struct Pkt { track_number: u64, ts_ms: i64, duration_ms: i64, data: Vec<u8> }
+    let mut packets: Vec<Pkt> = Vec::new();
+    loop {
+        match format.next_packet() {
+            Ok(p) => packets.push(Pkt { track_number: p.track_id() as u64, ts_ms: p.ts() as i64, duration_ms: 0, data: p.data.to_vec() }),
+            Err(SymphoniaError::IoError(_)) => break,
+            Err(SymphoniaError::ResetRequired) => break,
+            Err(e) => return Err(format!("Error while reading packets: {e}")),
+        }
+    }
+    if packets.is_empty() {
+        return Err("No decodable packets were found in this file.".to_string());
+    }
+
+    {
+        let mut indices_by_track: std::collections::HashMap<u64, Vec<usize>> = std::collections::HashMap::new();
+        for (i, p) in packets.iter().enumerate() {
+            indices_by_track.entry(p.track_number).or_default().push(i);
+        }
+        for (_track, mut indices) in indices_by_track {
+            indices.sort_by_key(|&i| packets[i].ts_ms);
+            let mut last_gap: i64 = 1;
+            for w in 0..indices.len() {
+                let gap = if w + 1 < indices.len() {
+                    (packets[indices[w + 1]].ts_ms - packets[indices[w]].ts_ms).max(1)
+                } else {
+                    last_gap
+                };
+                last_gap = gap;
+                packets[indices[w]].duration_ms = gap;
+            }
+        }
+    }
+
+    let (write_path, needs_rename) = if target_ext == "mov" {
+        (output_path.with_extension("__ftools_mov_tmp__.mp4"), true)
+    } else {
+        (output_path.to_path_buf(), false)
+    };
+    let write_url = HSTRING::from(write_path.to_string_lossy().as_ref());
+
+    let target_ext_owned = target_ext.to_string();
+    let handle = std::thread::spawn(move || -> Result<(), String> {
+        unsafe {
+            CoInitializeEx(None, COINIT_APARTMENTTHREADED)
+                .ok()
+                .map_err(|e| format!("Couldn't initialize COM on the remux thread: {e}"))?;
+
+            let result: Result<(), String> = (|| {
+                MFStartup(MF_VERSION, MFSTARTUP_FULL).map_err(|e| format!("Couldn't start Media Foundation: {e}"))?;
+
+                let inner: Result<(), String> = (|| {
+                    let mut writer_attrs: Option<IMFAttributes> = None;
+                    MFCreateAttributes(&mut writer_attrs, 1).map_err(|e| e.to_string())?;
+                    let writer_attrs = writer_attrs
+                        .ok_or_else(|| "Media Foundation didn't return an attributes object.".to_string())?;
+                    writer_attrs
+                        .SetUINT32(&MF_SINK_WRITER_DISABLE_THROTTLING, 1)
+                        .map_err(|e| e.to_string())?;
+
+                    let writer = MFCreateSinkWriterFromURL(&write_url, None, &writer_attrs)
+                        .map_err(|e| format!("Couldn't create the output writer: {e}"))?;
+
+                    let mut stream_map: std::collections::HashMap<u64, u32> = std::collections::HashMap::new();
+                    let mut video_nal_info: std::collections::HashMap<u64, (usize, Vec<u8>)> = std::collections::HashMap::new();
+
+                    let mut video_frame_rate: std::collections::HashMap<u64, (u32, u32)> = std::collections::HashMap::new();
+                    for t in &tracks {
+                        if t.track_type != 1 {
+                            continue;
+                        }
+                        let mut ts: Vec<i64> = packets.iter().filter(|p| p.track_number == t.number).map(|p| p.ts_ms).collect();
+                        ts.sort_unstable();
+                        let rate = if ts.len() >= 2 {
+                            let span_ms = (ts[ts.len() - 1] - ts[0]).max(1) as u32;
+                            let frames = (ts.len() as u32 - 1) * 1000;
+                            (frames, span_ms)
+                        } else {
+                            (30, 1)
+                        };
+                        video_frame_rate.insert(t.number, rate);
+                    }
+
+                    let mut audio_bytes_per_sec: std::collections::HashMap<u64, u32> = std::collections::HashMap::new();
+                    for t in &tracks {
+                        if t.track_type != 2 {
+                            continue;
+                        }
+                        let track_packets: Vec<&Pkt> = packets.iter().filter(|p| p.track_number == t.number).collect();
+                        if track_packets.is_empty() {
+                            continue;
+                        }
+                        let total_bytes: u64 = track_packets.iter().map(|p| p.data.len() as u64).sum();
+                        let mut ts: Vec<i64> = track_packets.iter().map(|p| p.ts_ms).collect();
+                        ts.sort_unstable();
+                        let span_ms = (ts[ts.len() - 1] - ts[0]).max(1) as u64;
+                        let bps = ((total_bytes * 1000) / span_ms).max(1) as u32;
+                        audio_bytes_per_sec.insert(t.number, bps);
+                    }
+
+                    {
+                        let mut dump = String::new();
+                        for t in &tracks {
+                            dump.push_str(&format!(
+                                "track {} type={} codec={} codec_private_len={} width={:?} height={:?} sample_rate={:?} channels={:?} frame_rate={:?}\n",
+                                t.number, t.track_type, t.codec_id, t.codec_private.len(),
+                                t.width, t.height, t.sample_rate, t.channels,
+                                video_frame_rate.get(&t.number)
+                            ));
+                            if !t.codec_private.is_empty() {
+                                dump.push_str(&format!("  codec_private hex: {}\n", t.codec_private.iter().map(|b| format!("{:02x}", b)).collect::<String>()));
+                            }
+                        }
+                        let log_path = std::env::temp_dir().join("ftools_mkv_remux_debug.txt");
+                        let _ = fs::write(&log_path, &dump);
+                    }
+
+                    let mut ordered_tracks: Vec<&ebml::TrackMeta> = tracks.iter().collect();
+                    ordered_tracks.sort_by_key(|t| std::cmp::Reverse(t.track_type));
+
+                    let skip_video = std::env::var("FTOOLS_SKIP_VIDEO").is_ok();
+                    let skip_audio = std::env::var("FTOOLS_SKIP_AUDIO").is_ok();
+
+                    for t in ordered_tracks {
+
+                        if (t.track_type == 1 && skip_video) || (t.track_type == 2 && skip_audio) {
+                            continue;
+                        }
+
+                        let output_type = MFCreateMediaType().map_err(|e| e.to_string())?;
+                        match t.codec_id.as_str() {
+                            "V_MPEG4/ISO/AVC" | "V_MPEGH/ISO/HEVC" => {
+                                if t.codec_id == "V_MPEGH/ISO/HEVC" {
+                                    return Err("Reading HEVC (H.265) back out of an MKV isn't supported yet, only H.264. Tell me if you need this and I'll add proper hvcC handling.".to_string());
+                                }
+                                output_type.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Video).map_err(|e| e.to_string())?;
+                                output_type.SetGUID(&MF_MT_SUBTYPE, &MFVideoFormat_H264).map_err(|e| e.to_string())?;
+                                output_type.SetUINT32(&MF_MT_INTERLACE_MODE, MFVideoInterlace_Progressive.0 as u32).map_err(|e| e.to_string())?;
+                                if let (Some(w), Some(h)) = (t.width, t.height) {
+                                    output_type.SetUINT64(&MF_MT_FRAME_SIZE, (w << 32) | h).map_err(|e| e.to_string())?;
+                                }
+                                if let Some(&(num, den)) = video_frame_rate.get(&t.number) {
+                                    output_type.SetUINT64(&MF_MT_FRAME_RATE, ((num as u64) << 32) | den as u64).map_err(|e| e.to_string())?;
+                                }
+                                output_type.SetUINT64(&MF_MT_PIXEL_ASPECT_RATIO, (1u64 << 32) | 1).map_err(|e| e.to_string())?;
+                                {
+                                    let track_packets: Vec<&Pkt> = packets.iter().filter(|p| p.track_number == t.number).collect();
+                                    if !track_packets.is_empty() {
+                                        let total_bytes: u64 = track_packets.iter().map(|p| p.data.len() as u64).sum();
+                                    let mut ts: Vec<i64> = track_packets.iter().map(|p| p.ts_ms).collect();
+                                        ts.sort_unstable();
+                                        let span_ms = (ts[ts.len() - 1] - ts[0]).max(1) as u64;
+                                        let bitrate_bps = ((total_bytes * 8 * 1000) / span_ms).max(1) as u32;
+                                        output_type.SetUINT32(&MF_MT_AVG_BITRATE, bitrate_bps).map_err(|e| e.to_string())?;
+                                    }
+                                }
+                                if !t.codec_private.is_empty() {
+                                    let annexb_header = avcc_extradata_to_annexb(&t.codec_private)?;
+                                    output_type.SetBlob(&MF_MT_MPEG_SEQUENCE_HEADER, &annexb_header).map_err(|e| e.to_string())?;
+                                    let length_size = nal_length_size_from_avcc(&t.codec_private);
+                                    video_nal_info.insert(t.number, (length_size, annexb_header));
+                                } else {
+                                    let fallback_header = packets
+                                        .iter()
+                                        .filter(|p| p.track_number == t.number)
+                                        .take(30)
+                                        .find_map(|p| sps_pps_from_bitstream(&p.data));
+                                    match fallback_header {
+                                        Some(annexb_header) => {
+                                            output_type.SetBlob(&MF_MT_MPEG_SEQUENCE_HEADER, &annexb_header).map_err(|e| e.to_string())?;
+                                        }
+                                        None => {
+                                            return Err(format!(
+                                                "This file's video track (track {}) has no CodecPrivate and no in-band SPS/PPS could be found, so {} can't build the header it needs.",
+                                                t.number, target_ext_owned.to_uppercase()
+                                            ));
+                                        }
+                                    }
+                                }
+                            }
+                            "A_AAC" | "A_MPEG/L3" => {
+                                output_type.SetGUID(&MF_MT_MAJOR_TYPE, &MFMediaType_Audio).map_err(|e| e.to_string())?;
+                                let subtype = if t.codec_id == "A_AAC" { MFAudioFormat_AAC } else { MFAudioFormat_MP3 };
+                                output_type.SetGUID(&MF_MT_SUBTYPE, &subtype).map_err(|e| e.to_string())?;
+                                if let Some(rate) = t.sample_rate {
+                                    output_type.SetUINT32(&MF_MT_AUDIO_SAMPLES_PER_SECOND, rate as u32).map_err(|e| e.to_string())?;
+                                }
+                                if let Some(ch) = t.channels {
+                                    output_type.SetUINT32(&MF_MT_AUDIO_NUM_CHANNELS, ch as u32).map_err(|e| e.to_string())?;
+                                }
+                                if let Some(&bps) = audio_bytes_per_sec.get(&t.number) {
+                                    output_type.SetUINT32(&MF_MT_AUDIO_AVG_BYTES_PER_SECOND, bps).map_err(|e| e.to_string())?;
+                                }
+                                if let Some(&bps) = audio_bytes_per_sec.get(&t.number) {
+                                    output_type.SetUINT32(&MF_MT_AVG_BITRATE, bps * 8).map_err(|e| e.to_string())?;
+                                }
+                                output_type.SetUINT32(&MF_MT_AUDIO_BLOCK_ALIGNMENT, 1).map_err(|e| e.to_string())?;
+                                if t.codec_id == "A_MPEG/L3" {
+                                    let bitrate_bps = audio_bytes_per_sec.get(&t.number).copied().unwrap_or(16_000) * 8;
+                                    let sample_rate = t.sample_rate.unwrap_or(44100.0) as u32;
+                                    let block_size = if sample_rate > 0 { ((144 * bitrate_bps) / sample_rate) as u16 } else { 0 };
+                                    let mut user_data = Vec::with_capacity(12);
+                                    user_data.extend_from_slice(&1u16.to_le_bytes());
+                                    user_data.extend_from_slice(&0u32.to_le_bytes());
+                                    user_data.extend_from_slice(&block_size.to_le_bytes());
+                                    user_data.extend_from_slice(&1u16.to_le_bytes());
+                                    user_data.extend_from_slice(&0u16.to_le_bytes());
+                                    output_type.SetBlob(&MF_MT_USER_DATA, &user_data).map_err(|e| e.to_string())?;
+                                }
+                                let audio_object_type = t.codec_private.first().map(|&b| b >> 3).unwrap_or(0);
+                                if t.codec_id == "A_AAC" && !t.codec_private.is_empty() && audio_object_type != 2 {
+                                    let mut user_data = Vec::with_capacity(12 + t.codec_private.len());
+                                    user_data.extend_from_slice(&0u16.to_le_bytes());
+                                    user_data.extend_from_slice(&0x00FEu16.to_le_bytes());
+                                    user_data.extend_from_slice(&0u16.to_le_bytes());
+                                    user_data.extend_from_slice(&0u16.to_le_bytes());
+                                    user_data.extend_from_slice(&0u32.to_le_bytes());
+                                    user_data.extend_from_slice(&t.codec_private);
+                                    output_type.SetBlob(&MF_MT_USER_DATA, &user_data).map_err(|e| e.to_string())?;
+                                }
+                            }
+                            _ => unreachable!(),
+                        }
+
+                        let output_index = writer
+                            .AddStream(&output_type)
+                            .map_err(|e| format!("Couldn't configure the output stream for track {}: {e}", t.number))?;
+                        writer.SetInputMediaType(output_index, &output_type, None).map_err(|e| {
+                            format!("This track's format wasn't accepted by the {} muxer: {e}", target_ext_owned.to_uppercase())
+                        })?;
+                        stream_map.insert(t.number, output_index);
+                    }
+
+                    writer.BeginWriting().map_err(|e| format!("Couldn't begin writing the output file: {e}"))?;
+
+
+                    let mut written_counts: std::collections::HashMap<u64, u32> = std::collections::HashMap::new();
+
+                    for p in &packets {
+                        let Some(&output_index) = stream_map.get(&p.track_number) else { continue };
+
+                        let sample_data: std::borrow::Cow<[u8]> = match video_nal_info.get(&p.track_number) {
+                            Some((length_size, annexb_header)) => {
+                                let mut nalus = length_prefixed_to_annexb(&p.data, *length_size);
+                                let mut with_header = Vec::with_capacity(annexb_header.len() + nalus.len());
+                                with_header.extend_from_slice(annexb_header);
+                                with_header.append(&mut nalus);
+                                std::borrow::Cow::Owned(with_header)
+                            }
+                            None => std::borrow::Cow::Borrowed(&p.data),
+                        };
+
+                        let buffer = MFCreateMemoryBuffer(sample_data.len() as u32).map_err(|e| e.to_string())?;
+                        let mut ptr: *mut u8 = std::ptr::null_mut();
+                        buffer.Lock(&mut ptr, None, None).map_err(|e| e.to_string())?;
+                        std::ptr::copy_nonoverlapping(sample_data.as_ptr(), ptr, sample_data.len());
+                        buffer.Unlock().map_err(|e| e.to_string())?;
+                        buffer.SetCurrentLength(sample_data.len() as u32).map_err(|e| e.to_string())?;
+
+                        let sample = MFCreateSample().map_err(|e| e.to_string())?;
+                        sample.AddBuffer(&buffer).map_err(|e| e.to_string())?;
+                        sample.SetSampleTime(p.ts_ms * 10_000).map_err(|e| e.to_string())?;
+                        sample.SetSampleDuration(p.duration_ms * 10_000).map_err(|e| e.to_string())?;
+                        sample.SetUINT32(&MFSampleExtension_CleanPoint, 1).map_err(|e| e.to_string())?;
+
+                        writer.WriteSample(output_index, &sample).map_err(|e| format!("Couldn't write media data: {e}"))?;
+                        *written_counts.entry(p.track_number).or_insert(0) += 1;
+                    }
+
+                    let debug_line = format!("samples written per stream: {:?}\n", written_counts);
+                    let log_path = std::env::temp_dir().join("ftools_mkv_remux_debug.txt");
+                    let _ = std::fs::OpenOptions::new().append(true).open(&log_path).and_then(|mut f| f.write_all(debug_line.as_bytes()));
+
+                    writer.Finalize().map_err(|e| format!("Couldn't finalize the output file: {e}"))?;
+                    Ok(())
+                })();
+
+                let _ = MFShutdown();
+                inner
+            })();
+
+            CoUninitialize();
+            result
+        }
+    });
+
+    handle
+        .join()
+        .unwrap_or_else(|_| Err("The Media Foundation remux thread panicked.".to_string()))?;
+
+    if needs_rename {
+        fs::rename(&write_path, output_path).map_err(|e| {
+            let _ = fs::remove_file(&write_path);
+            format!("Couldn't finish writing the .{target_ext} file: {e}")
+        })?;
+    }
+
+    Ok(())
+}
+
 #[tauri::command]
-fn convert_video(
+async fn convert_video(
     app: AppHandle,
     source_path: String,
     output_name: String,
@@ -1376,15 +2315,30 @@ fn convert_video(
     preserve_date: bool,
     overwrite: bool,
 ) -> Result<String, String> {
+    tauri::async_runtime::spawn_blocking(move || {
     let report = |percent: u8| {
         let _ = app.emit("conversion-progress", percent);
     };
 
     let source_path = PathBuf::from(source_path);
     let target_ext = target_ext.to_lowercase();
+    let source_ext = source_path
+        .extension()
+        .and_then(|e| e.to_str())
+        .map(|e| e.to_lowercase())
+        .unwrap_or_default();
 
-    if !matches!(target_ext.as_str(), "mp4" | "mov") {
-        return Err(format!("\"{}\" isn't wired up for video conversion yet.", target_ext));
+    let mf_pair = matches!(source_ext.as_str(), "mp4" | "mov") && matches!(target_ext.as_str(), "mp4" | "mov");
+    let matroska_pair =
+        matches!(source_ext.as_str(), "mkv" | "webm") && matches!(target_ext.as_str(), "mkv" | "webm");
+    let to_mkv = matches!(source_ext.as_str(), "mp4" | "mov") && target_ext == "mkv";
+    let from_mkv = source_ext == "mkv" && matches!(target_ext.as_str(), "mp4" | "mov");
+
+    if !mf_pair && !matroska_pair && !to_mkv && !from_mkv {
+        return Err(format!(
+            "Converting \"{}\" to \"{}\" isn't supported yet. MP4 and MOV convert to each other, MKV and WEBM convert to each other, and MP4/MOV convert to/from MKV (when the source's codec is legal in the target container), but converting to or from WEBM outside the MKV/WEBM pair needs real video/audio transcoding, which isn't implemented.",
+            source_ext, target_ext
+        ));
     }
 
     report(5);
@@ -1392,7 +2346,15 @@ fn convert_video(
     let output_dir = source_path.parent().unwrap_or_else(|| Path::new(""));
     let output_path = output_dir.join(format!("{output_name}.{target_ext}"));
 
-    remux_video_container(&source_path, &output_path, &target_ext)?;
+    if matroska_pair {
+        remux_matroska(&source_path, &output_path, &target_ext)?;
+    } else if to_mkv {
+        remux_container_to_mkv(&source_path, &output_path)?;
+    } else if from_mkv {
+        remux_mkv_to_container(&source_path, &output_path, &target_ext)?;
+    } else {
+        remux_video_container(&source_path, &output_path, &target_ext)?;
+    }
 
     report(85);
 
@@ -1407,6 +2369,9 @@ fn convert_video(
     report(100);
 
     Ok(output_path.to_string_lossy().to_string())
+    })
+    .await
+    .map_err(|e| format!("Conversion task panicked: {e}"))?
 }
 
 #[cfg(test)]
@@ -1473,8 +2438,83 @@ fn main() {
                 .expect("no main window")
                 .set_focus();
         }))
+        .plugin(
+            tauri_plugin_prevent_default::Builder::new()
+                .with_flags(
+                    Flags::DEV_TOOLS
+                        | Flags::FIND
+                        | Flags::RELOAD
+                        | Flags::PRINT
+                        | Flags::CONTEXT_MENU
+                )
+                .platform(PlatformOptions::new().browser_accelerator_keys(true))
+                .build()
+        )
         .plugin(tauri_plugin_dialog::init())
-        .invoke_handler(tauri::generate_handler![convert_image, convert_audio, convert_video])
+        .plugin(tauri_plugin_fs::init())
+        .setup(|app| {
+            let window = app.get_webview_window("main").expect("no main window");
+            apply_window_blur(&window);
+
+            if let Ok(hwnd_061) = window.hwnd() {
+                let hwnd = windows::Win32::Foundation::HWND(hwnd_061.0 as *mut _);
+                unsafe {
+                    let old = SetWindowLongPtrW(hwnd, GWLP_WNDPROC, force_active_wndproc as *const () as isize);
+                    ORIGINAL_WNDPROC.store(old, Ordering::SeqCst);
+                }
+            }
+
+            Ok(())
+        })
+        .invoke_handler(tauri::generate_handler![
+            convert_image,
+            convert_audio,
+            convert_video
+        ])
         .run(tauri::generate_context!())
         .expect("error while running fTools");
+}
+
+fn apply_window_blur(window: &tauri::WebviewWindow) {
+    let _ = apply_acrylic(window, Some((0, 0, 0, 20)));
+
+    if let Ok(hwnd_061) = window.hwnd() {
+        let hwnd = windows::Win32::Foundation::HWND(hwnd_061.0 as *mut _);
+        unsafe {
+            let region = CreateRectRgn(0, 0, -1, -1);
+            let bb = DWM_BLURBEHIND {
+                dwFlags: DWM_BB_ENABLE | DWM_BB_BLURREGION | DWM_BB_TRANSITIONONMAXIMIZED,
+                fEnable: true.into(),
+                hRgnBlur: region,
+                fTransitionOnMaximized: true.into(),
+            };
+
+            let _ = DwmEnableBlurBehindWindow(hwnd, &bb);
+            let _ = DeleteObject(region.into());
+        }
+    }
+}
+
+use std::sync::atomic::{AtomicIsize, Ordering};
+use windows::Win32::Foundation::{HWND, LPARAM, LRESULT, WPARAM};
+use windows::Win32::UI::WindowsAndMessaging::{
+    CallWindowProcW, SetWindowLongPtrW, GWLP_WNDPROC, WM_NCACTIVATE, WNDPROC,
+};
+
+static ORIGINAL_WNDPROC: AtomicIsize = AtomicIsize::new(0);
+
+unsafe extern "system" fn force_active_wndproc(
+    hwnd: HWND,
+    msg: u32,
+    wparam: WPARAM,
+    lparam: LPARAM,
+) -> LRESULT {
+    let orig_raw = ORIGINAL_WNDPROC.load(Ordering::SeqCst);
+    let orig: WNDPROC = std::mem::transmute(orig_raw);
+
+    if msg == WM_NCACTIVATE {
+        return CallWindowProcW(orig, hwnd, msg, WPARAM(1), LPARAM(-1));
+    }
+
+    CallWindowProcW(orig, hwnd, msg, wparam, lparam)
 }

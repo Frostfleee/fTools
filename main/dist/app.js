@@ -416,9 +416,13 @@ const ALPHA_AWARE_FORMATS = new Set([
     'option17', 'option18'
 ]);
 
-
 const warnBox = document.querySelector('.warn');
 const warnItems = new Map();
+const warnCountEl = document.getElementById('warn-count');
+let warnRepeatId = null;
+let warnRepeatCount = 1;
+let pendingWarn = null;
+let lastFocusedBeforeWarn = null;
 
 warnBox.querySelectorAll('a[id]').forEach((el) => {
     el.dataset.defaultText = el.textContent;
@@ -428,14 +432,94 @@ warnBox.querySelectorAll('a[id]').forEach((el) => {
 warnBox.addEventListener('animationend', (e) => {
     if (e.animationName === 'warn-out') {
         warnBox.classList.remove('show', 'hide');
+
+        if (pendingWarn) {
+            const next = pendingWarn;
+            pendingWarn = null;
+            displayWarn(next.id, next.message, false);
+        } else {
+            warnCountEl.classList.remove('show');
+            warnRepeatId = null;
+            if (warnBox.matches(':popover-open')) warnBox.hidePopover();
+        }
     }
 });
 
+function dismissWarn() {
+    if (!warnBox.classList.contains('show')) return;
+
+    clearTimeout(warnBox.warnTimeout);
+    warnBox.classList.remove('show');
+    warnBox.classList.add('hide');
+}
+
+warnBox.addEventListener('click', () => {
+    dismissWarn();
+    restoreFocusFromWarn();
+});
+
+function restoreFocusFromWarn() {
+    if (document.activeElement !== warnBox) return;
+
+    const target = lastFocusedBeforeWarn;
+    lastFocusedBeforeWarn = null;
+
+    if (target && document.contains(target) && typeof target.focus === 'function') {
+        target.focus({ focusVisible: true, preventScroll: true });
+    } else {
+        warnBox.blur();
+    }
+}
+
+warnBox.addEventListener('keydown', (e) => {
+    if (e.key === 'Tab') {
+        e.preventDefault();
+        restoreFocusFromWarn();
+        return;
+    }
+    if (e.key === 'Enter' || e.key === ' ') {
+        e.preventDefault();
+        dismissWarn();
+        restoreFocusFromWarn();
+    }
+});
+
+warnBox.addEventListener('focusout', () => {
+    dismissWarn();
+});
+
+function promoteWarn() {
+    if (warnBox.matches(':popover-open')) warnBox.hidePopover();
+    warnBox.showPopover();
+}
+
 function triggerWarn(id, message) {
     if (appSettings.hideWarnNotifications) return;
+    if (!warnItems.has(id)) return;
 
+    const isShowing = warnBox.classList.contains('show');
+    const isRepeat = isShowing && warnRepeatId === id;
+
+    if (isRepeat) {
+        displayWarn(id, message, true);
+        return;
+    }
+
+    if (isShowing) {
+        pendingWarn = { id, message };
+        dismissWarn();
+        return;
+    }
+
+    displayWarn(id, message, false);
+}
+
+function displayWarn(id, message, isRepeat) {
     const activeEl = warnItems.get(id);
     if (!activeEl) return;
+
+    const shouldFocusWarn = usingKeyboard && focusRing.classList.contains('visible') && document.activeElement !== warnBox;
+    if (shouldFocusWarn) lastFocusedBeforeWarn = document.activeElement;
 
     let text = activeEl.dataset.defaultText;
     if (message) {
@@ -446,14 +530,29 @@ function triggerWarn(id, message) {
 
     warnItems.forEach((el) => el.classList.toggle('active', el === activeEl));
 
-    warnBox.classList.remove('show', 'hide');
-    void warnBox.offsetWidth;
-    warnBox.classList.add('show');
+    warnRepeatId = id;
+    warnRepeatCount = isRepeat ? warnRepeatCount + 1 : 1;
+
+    if (warnRepeatCount > 1) {
+        warnCountEl.textContent = warnRepeatCount > 9 ? '+9' : String(warnRepeatCount);
+        warnCountEl.classList.add('show');
+    } else {
+        warnCountEl.classList.remove('show');
+    }
+
+    if (!isRepeat) {
+        promoteWarn();
+        warnBox.classList.remove('show', 'hide');
+        void warnBox.offsetWidth;
+        warnBox.classList.add('show');
+    }
+
+    if (shouldFocusWarn) warnBox.focus({ focusVisible: true, preventScroll: true });
 
     clearTimeout(warnBox.warnTimeout);
     warnBox.warnTimeout = setTimeout(() => {
-        warnBox.classList.remove('show');
-        warnBox.classList.add('hide');
+        dismissWarn();
+        restoreFocusFromWarn();
     }, 2800);
 }
 
@@ -490,6 +589,10 @@ function doFileSaved() {
 
 function doFileCorrupted(message) {
     triggerWarn('file-corrupted', message);
+}
+
+function doImageLoadFailed() {
+    triggerWarn('image-load-failed');
 }
 
 function doMediaConvertInvalid() {
@@ -552,7 +655,8 @@ let appSettings = {
     hideWarnNotifications: false,
     lastTool: 'fontstyler',
     appTheme: 'dark',
-    highContrast: false
+    highContrast: false,
+    hideToolInTitlebar: false
 };
 
 
@@ -913,13 +1017,33 @@ function setupMediaPanel() {
         audio: panel.querySelector('.audio-svg')
     };
 
-    const loadingPanel = document.getElementById('loading');
+    const loadingPanel = document.getElementById('loading-screen');
     const loadingBarFill = loadingPanel?.querySelector('.loading-bar-fill');
     const windowEl = document.querySelector('.window');
     const sidebarEl = document.querySelector('.sidebar');
 
+    let titleAnimFrame = null;
+    let titleDisplayedPercent = 0;
+
+    function animateTitleTo(target) {
+        cancelAnimationFrame(titleAnimFrame);
+        const start = titleDisplayedPercent;
+        const startTime = performance.now();
+        const duration = 400;
+
+        function tick(now) {
+            const t = Math.min((now - startTime) / duration, 1);
+            const eased = 1 - Math.pow(1 - t, 3);
+            titleDisplayedPercent = start + (target - start) * eased;
+            setConversionProgressTitle(titleDisplayedPercent);
+            if (t < 1) titleAnimFrame = requestAnimationFrame(tick);
+        }
+        titleAnimFrame = requestAnimationFrame(tick);
+    }
+
     function setProgress(percent) {
         if (loadingBarFill) loadingBarFill.style.width = `${percent}%`;
+        animateTitleTo(percent);
     }
 
     function showLoading() {
@@ -932,10 +1056,12 @@ function setupMediaPanel() {
     }
 
     function hideLoading() {
+        cancelAnimationFrame(titleAnimFrame);
         loadingPanel?.classList.remove('show');
         panel.classList.add('active');
         windowEl?.classList.remove('hidden');
         sidebarEl?.classList.remove('hidden');
+        updateWindowTitle(currentPanelId);
     }
 
     const isTauri = '__TAURI_INTERNALS__' in window;
@@ -1215,6 +1341,254 @@ function setupMediaPanel() {
 }
 
 
+const QR_SETTINGS_KEY = 'ftools:qrcode-settings';
+
+function loadQrSettings() {
+    try {
+        const raw = localStorage.getItem(QR_SETTINGS_KEY);
+        return raw ? JSON.parse(raw) : {};
+    } catch (err) {
+        console.error('Could not load QR code settings:', err);
+        return {};
+    }
+}
+
+function saveQrSettings(settings) {
+    try {
+        localStorage.setItem(QR_SETTINGS_KEY, JSON.stringify(settings));
+    } catch (err) {
+        console.error('Could not save QR code settings:', err);
+    }
+}
+
+function setupQrConverter() {
+    const panel = document.getElementById('qrcodeconverter');
+    if (!panel) return;
+    if (typeof qrcode !== 'function') {
+        console.error('QR library not loaded; make sure qrcode-generator_min.js is included before app.js.');
+        return;
+    }
+
+    const textInput = document.getElementById('qr-text');
+    const eclSelect = document.getElementById('qr-ecl');
+    const eclStops = Array.from(document.querySelectorAll('#qr-ecl-stops .qr-ecl-stop'));
+    const eclTrack = document.getElementById('qr-ecl-track');
+    const eclThumbVisual = document.getElementById('qr-ecl-thumb');
+    const eclTrackFill = document.getElementById('qr-ecl-fill');
+    const previewWrap = document.getElementById('qr-preview-wrap');
+    const previewCanvas = document.getElementById('qr-preview-canvas');
+    const saveImageBtn = document.getElementById('qr-save-image');
+    const copyImageBtn = document.getElementById('qr-copy-image');
+
+    if (!textInput || !eclSelect || !previewCanvas) return;
+
+    const isTauri = '__TAURI_INTERNALS__' in window;
+    const previewCtx = previewCanvas.getContext('2d');
+
+    let lastQrDataUrl = null;
+
+    function setPreviewEmpty(isEmpty) {
+        previewWrap?.classList.toggle('empty', isEmpty);
+    }
+
+    function drawQr(text, ecl) {
+        const qr = qrcode(0, ecl);
+        qr.addData(text);
+        qr.make();
+
+        const count = qr.getModuleCount();
+        const cellSize = Math.max(1, Math.floor(120 / count));
+        const size = cellSize * count;
+
+        previewCanvas.width = size;
+        previewCanvas.height = size;
+        previewCtx.fillStyle = '#fff';
+        previewCtx.fillRect(0, 0, size, size);
+        previewCtx.fillStyle = '#000';
+        for (let row = 0; row < count; row += 1) {
+            for (let col = 0; col < count; col += 1) {
+                if (qr.isDark(row, col)) {
+                    previewCtx.fillRect(col * cellSize, row * cellSize, cellSize, cellSize);
+                }
+            }
+        }
+
+        lastQrDataUrl = previewCanvas.toDataURL('image/png');
+    }
+
+    function regenerate() {
+        const text = textInput.value;
+        if (!text.trim()) {
+            setPreviewEmpty(true);
+            lastQrDataUrl = null;
+            return;
+        }
+
+        try {
+            drawQr(text, eclSelect.value);
+            setPreviewEmpty(false);
+        } catch (err) {
+            console.error('Could not generate QR code:', err);
+            setPreviewEmpty(true);
+            lastQrDataUrl = null;
+        }
+    }
+
+    let regenTimer = null;
+    textInput.addEventListener('input', () => {
+        clearTimeout(regenTimer);
+        regenTimer = setTimeout(regenerate, 120);
+    });
+
+    eclSelect.addEventListener('change', () => {
+        saveQrSettings({ ecl: eclSelect.value });
+        regenerate();
+    });
+
+    const eclValues = ['L', 'M', 'Q', 'H'];
+    const eclTrackWrap = eclTrack?.parentElement || null;
+
+    let eclPointerId = null;
+
+    function setEclThumbLeft(percent) {
+        if (!eclTrackWrap || !eclThumbVisual) return;
+        const trackWidth = eclTrackWrap.clientWidth;
+        const thumbWidth = eclThumbVisual.offsetWidth || 14;
+        const clamped = Math.min(Math.max(percent, 0), 1);
+        const left = clamped * (trackWidth - thumbWidth);
+        eclThumbVisual.style.left = `${left}px`;
+        if (eclTrackFill) {
+            eclTrackFill.style.width = `${left + thumbWidth / 2}px`;
+        }
+    }
+
+    function updateEclThumbVisual() {
+        if (!eclTrack) return;
+        const min = Number(eclTrack.min) || 0;
+        const max = Number(eclTrack.max) || 1;
+        setEclThumbLeft((Number(eclTrack.value) - min) / (max - min));
+    }
+
+    if (eclTrackWrap && typeof ResizeObserver !== 'undefined') {
+        const eclResizeObserver = new ResizeObserver(() => updateEclThumbVisual());
+        eclResizeObserver.observe(eclTrackWrap);
+    }
+
+    function eclIndexFromClientX(clientX) {
+        if (!eclTrackWrap) return 0;
+        const rect = eclTrackWrap.getBoundingClientRect();
+        const thumbWidth = eclThumbVisual?.offsetWidth || 14;
+        const usable = rect.width - thumbWidth;
+        const x = clientX - rect.left - thumbWidth / 2;
+        const percent = usable > 0 ? Math.min(Math.max(x / usable, 0), 1) : 0;
+        return Math.round(percent * (eclValues.length - 1));
+    }
+
+    function setEclThumb(value) {
+        const index = eclValues.indexOf(value);
+        if (index === -1 || !eclTrack) return;
+        eclTrack.value = String(index);
+        updateEclThumbVisual();
+    }
+
+    function setEclSelected(value) {
+        eclStops.forEach((btn) => btn.classList.toggle('selected', btn.dataset.value === value));
+        setEclThumb(value);
+    }
+
+    function setEcl(value) {
+        if (!eclValues.includes(value)) return;
+        setEclSelected(value);
+        if (eclSelect.value !== value) {
+            eclSelect.value = value;
+            eclSelect.dispatchEvent(new Event('change'));
+        }
+    }
+
+    eclStops.forEach((btn) => {
+        btn.addEventListener('click', () => setEcl(btn.dataset.value));
+    });
+
+    eclTrack?.addEventListener('input', () => {
+        setEcl(eclValues[Number(eclTrack.value)]);
+    });
+
+    eclTrackWrap?.addEventListener('pointerdown', (e) => {
+        eclPointerId = e.pointerId;
+        eclTrackWrap.setPointerCapture(e.pointerId);
+        setEcl(eclValues[eclIndexFromClientX(e.clientX)]);
+    });
+
+    eclTrackWrap?.addEventListener('pointermove', (e) => {
+        if (eclPointerId === null || e.pointerId !== eclPointerId) return;
+        setEcl(eclValues[eclIndexFromClientX(e.clientX)]);
+    });
+
+    function endEclDrag() {
+        eclPointerId = null;
+    }
+
+    eclTrackWrap?.addEventListener('pointerup', endEclDrag);
+    eclTrackWrap?.addEventListener('pointercancel', endEclDrag);
+
+    setEclSelected(eclSelect.value);
+
+    copyImageBtn?.addEventListener('click', async () => {
+        if (!lastQrDataUrl) {
+            triggerWarn('qr-no-code');
+            return;
+        }
+        try {
+            const blob = await (await fetch(lastQrDataUrl)).blob();
+            await navigator.clipboard.write([new ClipboardItem({ [blob.type]: blob })]);
+            triggerWarn('copy-valid');
+        } catch (err) {
+            console.error('Could not copy QR code image:', err);
+            doCopyInvalid();
+        }
+    });
+
+    saveImageBtn?.addEventListener('click', async () => {
+        if (!lastQrDataUrl) {
+            triggerWarn('qr-no-code');
+            return;
+        }
+        try {
+            const blob = await (await fetch(lastQrDataUrl)).blob();
+            if (isTauri && window.__TAURI__?.dialog?.save && window.__TAURI__?.fs?.writeFile) {
+                const path = await window.__TAURI__.dialog.save({
+                    title: 'Save QR code',
+                    defaultPath: 'qrcode.png',
+                    filters: [{ name: 'PNG image', extensions: ['png'] }]
+                });
+                if (!path) return;
+                const bytes = new Uint8Array(await blob.arrayBuffer());
+                await window.__TAURI__.fs.writeFile(path, bytes);
+            } else {
+                const url = URL.createObjectURL(blob);
+                const link = document.createElement('a');
+                link.href = url;
+                link.download = 'qrcode.png';
+                document.body.appendChild(link);
+                link.click();
+                link.remove();
+                URL.revokeObjectURL(url);
+            }
+            doFileSaved();
+        } catch (err) {
+            console.error('Could not save QR code image:', err);
+            doFileCorrupted(err);
+        }
+    });
+
+    const saved = loadQrSettings();
+    if (saved.ecl) eclSelect.value = saved.ecl;
+    setEclSelected(eclSelect.value);
+    updateEclThumbVisual();
+    setPreviewEmpty(true);
+}
+
+
 function withNoTransition(callback) {
     document.body.setAttribute('theme-switch', '');
     callback();
@@ -1222,6 +1596,14 @@ function withNoTransition(callback) {
     requestAnimationFrame(() => {
         document.body.removeAttribute('theme-switch');
     });
+}
+
+function getRowDefault(input) {
+    const row = input?.closest('.settings-row');
+    const raw = row?.getAttribute('default');
+    if (raw == null) return undefined;
+    if (input.type === 'checkbox') return raw.toLowerCase() === 'enabled';
+    return raw.toLowerCase();
 }
 
 async function setupSettingsPanel() {
@@ -1234,16 +1616,18 @@ async function setupSettingsPanel() {
     const hideWarningsInput = document.getElementById('s-hide-warnings');
     const appThemeInput = document.getElementById('s-app-theme');
     const highContrastInput = document.getElementById('s-high-contrast');
+    const hideToolInTitlebarInput = document.getElementById('s-hide-tool-in-titlebar');
 
     const saved = await loadAppSettings();
     appSettings = {
-        alwaysOnTop: !!saved.alwaysOnTop,
-        rememberLastTool: !!saved.rememberLastTool,
-        closeOnFocusLoss: !!saved.closeOnFocusLoss,
-        hideWarnNotifications: !!saved.hideWarnNotifications,
+        alwaysOnTop: saved.alwaysOnTop ?? getRowDefault(alwaysOnTopInput) ?? false,
+        rememberLastTool: saved.rememberLastTool ?? getRowDefault(rememberToolInput) ?? false,
+        closeOnFocusLoss: saved.closeOnFocusLoss ?? getRowDefault(closeOnFocusLossInput) ?? false,
+        hideWarnNotifications: saved.hideWarnNotifications ?? getRowDefault(hideWarningsInput) ?? false,
         lastTool: saved.lastTool || 'fontstyler',
-        appTheme: saved.appTheme || 'dark',
-        highContrast: !!saved.highContrast
+        appTheme: saved.appTheme || getRowDefault(appThemeInput) || 'dark',
+        highContrast: saved.highContrast ?? getRowDefault(highContrastInput) ?? false,
+        hideToolInTitlebar: saved.hideToolInTitlebar ?? getRowDefault(hideToolInTitlebarInput) ?? false
     };
 
     if (alwaysOnTopInput) alwaysOnTopInput.checked = appSettings.alwaysOnTop;
@@ -1255,6 +1639,7 @@ async function setupSettingsPanel() {
         appThemeInput.__dropdownSync?.();
     }
     if (highContrastInput) highContrastInput.checked = appSettings.highContrast;
+    if (hideToolInTitlebarInput) hideToolInTitlebarInput.checked = appSettings.hideToolInTitlebar;
 
     withNoTransition(() => {
         document.body.setAttribute('theme', appSettings.appTheme);
@@ -1303,6 +1688,12 @@ async function setupSettingsPanel() {
         });
     });
 
+    hideToolInTitlebarInput?.addEventListener('change', () => {
+        appSettings.hideToolInTitlebar = hideToolInTitlebarInput.checked;
+        saveAppSettings(appSettings);
+        updateWindowTitle(currentPanelId);
+    });
+
     currentWindow?.onFocusChanged(({ payload: focused }) => {
         if (!focused && appSettings.closeOnFocusLoss && Date.now() - appLaunchTime > 2000) {
             currentWindow.close();
@@ -1333,15 +1724,16 @@ function setupInputClearButtons() {
 setupFontStyler();
 setupColorPanel();
 setupMediaPanel();
+setupQrConverter();
 setupInputClearButtons();
 
 let openDropdownState = null;
 
 document.addEventListener('mousedown', (e) => {
+    if (e.button === 1) e.preventDefault();
     if (!openDropdownState) return;
     const { toggle, popup, close } = openDropdownState;
     if (e.button === 1) {
-        e.preventDefault();
         close();
         return;
     }
@@ -1395,7 +1787,9 @@ function inflateRadius(radius, amount) {
 }
 
 function getFocusVisualTarget(target) {
-    return target.closest('.switch') || target;
+    return target.closest('.switch')
+        || target.closest('.autoclicker-input')?.closest('.autoclicker-input-wrap')
+        || target;
 }
 
 function updateFocusRing(target, skipTransition = false) {
@@ -1481,25 +1875,28 @@ function trackFocusRing() {
 }
 setInterval(trackFocusRing, (1000 / 60) / 10);
 
-
-function initCustomDropdown(select) {
+function initCustomDropdown(select, trigger) {
     if (select.dataset.customized) return;
     select.dataset.customized = '1';
     select.setAttribute('aria-hidden', 'true');
     select.tabIndex = -1;
 
-    const toggle = document.createElement('button');
-    toggle.type = 'button';
-    toggle.className = 'dropdown-toggle';
-    toggle.setAttribute('role', 'combobox');
+    let label = null;
+    const toggle = trigger || document.createElement('button');
+
+    if (!trigger) {
+        toggle.type = 'button';
+        toggle.className = 'dropdown-toggle';
+        toggle.setAttribute('role', 'combobox');
+
+        label = document.createElement('span');
+        label.className = 'dropdown-toggle-label';
+        toggle.appendChild(label);
+
+        select.insertAdjacentElement('afterend', toggle);
+    }
     toggle.setAttribute('aria-haspopup', 'listbox');
     toggle.setAttribute('aria-expanded', 'false');
-
-    const label = document.createElement('span');
-    label.className = 'dropdown-toggle-label';
-    toggle.appendChild(label);
-
-    select.insertAdjacentElement('afterend', toggle);
 
     const popup = document.createElement('div');
     popup.className = 'dropdown-popup';
@@ -1524,7 +1921,7 @@ function initCustomDropdown(select) {
     }
 
     function syncLabel() {
-        label.textContent = select.options[select.selectedIndex]?.textContent || '';
+        if (label) label.textContent = select.options[select.selectedIndex]?.textContent || '';
     }
     syncLabel();
     select.__dropdownSync = syncLabel;
@@ -1584,6 +1981,14 @@ function initCustomDropdown(select) {
         scrollWrap.style.maxHeight = isSettingsScoped ? '115px' : '174px';
     }
 
+    function clampPopupToWindowTop() {
+        const popupRect = popup.getBoundingClientRect();
+        if (popupRect.top < 35) {
+            const currentTop = parseFloat(popup.style.top) || 0;
+            popup.style.top = `${currentTop + (35 - popupRect.top)}px`;
+        }
+    }
+
     function openPopup() {
         if (isOpen) return;
         clearCloseCleanup();
@@ -1591,6 +1996,8 @@ function initCustomDropdown(select) {
         buildOptions();
         positionPopup();
         if (!popup.matches(':popover-open')) popup.showPopover();
+        clampPopupToWindowTop();
+        if (warnBox.matches(':popover-open')) promoteWarn();
         toggle.setAttribute('aria-expanded', 'true');
         toggle.classList.add('open');
         openDropdownState = { toggle, popup, select, close: closePopup };
@@ -1713,7 +2120,993 @@ function initCustomDropdown(select) {
     });
 }
 
-document.querySelectorAll('select.dropdown').forEach(initCustomDropdown);
+document.querySelectorAll('select.dropdown').forEach((select) => initCustomDropdown(select));
+
+
+
+const AC_SETTINGS_KEY = 'ftools:autoclicker-settings';
+
+const acClickTypeSelect = document.getElementById('ac-button');
+const acCpsInput = document.getElementById('ac-cps');
+const acHoldTimeInput = document.getElementById('ac-hold-time');
+
+let acRestoringSettings = true;
+
+function loadAcSettings() {
+    try {
+        const raw = localStorage.getItem(AC_SETTINGS_KEY);
+        return raw ? JSON.parse(raw) : {};
+    } catch (err) {
+        console.error('Could not load autoclicker settings:', err);
+        return {};
+    }
+}
+
+function saveAcSettings() {
+    if (acRestoringSettings) return;
+    try {
+        localStorage.setItem(AC_SETTINGS_KEY, JSON.stringify({
+            clickType: acClickTypeSelect ? acClickTypeSelect.value : undefined,
+            clickMode: acClickMode,
+            clickKey: acClickKeyValue,
+            actions: acActionList,
+            actionListFolded: acRowFolded,
+            cps: acCpsInput ? acCpsInput.value : undefined,
+            holdTime: acHoldTimeInput ? acHoldTimeInput.value : undefined,
+            toggleKey: acToggleKeyValue
+        }));
+    } catch (err) {
+        console.error('Could not save autoclicker settings:', err);
+    }
+}
+
+if (acClickTypeSelect) acClickTypeSelect.addEventListener('change', saveAcSettings);
+
+
+
+const acModeMouseBtn = document.getElementById('ac-mode-mouse');
+const acModeKeyboardBtn = document.getElementById('ac-mode-keyboard');
+const acModeMultipleBtn = document.getElementById('ac-mode-multiple');
+const acModeSwitch = document.getElementById('ac-mode-switch');
+const acClickTypeRow = document.getElementById('ac-click-type-row');
+const acMouseButtonRow = document.getElementById('ac-mouse-button-row');
+const acClickKeyRow = document.getElementById('ac-click-key-row');
+const acActionListRow = document.getElementById('ac-action-list-row');
+const acActionListEl = document.getElementById('ac-action-list');
+const acActionAddBtn = document.getElementById('ac-action-add');
+const acActionTypeSelect = document.getElementById('ac-action-type');
+if (acActionTypeSelect && acActionAddBtn) {
+    initCustomDropdown(acActionTypeSelect, acActionAddBtn);
+    acActionTypeSelect.selectedIndex = -1;
+}
+if (acActionTypeSelect) acActionTypeSelect.addEventListener('change', () => {
+    createAcAction(acActionTypeSelect.value);
+    acActionTypeSelect.selectedIndex = -1;
+});
+
+const AC_MAX_ACTIONS = 15;
+let acActionList = [];
+let acActionDetecting = null;
+let acActionPendingModifiers = [];
+let acActionModifierTimer = null;
+let acActionInitialListenTimer = null;
+
+let acClickMode = 'mouse';
+let acRowFolded = false;
+
+function clearRowAnimation(row) {
+    if (row._acAnimCleanup) {
+        row.removeEventListener('transitionend', row._acAnimCleanup);
+        row._acAnimCleanup = null;
+    }
+}
+
+function resetRowAnimationStyles(row) {
+    if (!row) return;
+    clearRowAnimation(row);
+    row.style.transition = '';
+    row.style.height = '';
+    row.style.marginTop = '';
+    row.style.overflow = '';
+    row.style.boxSizing = '';
+}
+
+function expandLinkedRow(row, onDone) {
+    if (!row) return;
+    clearRowAnimation(row);
+    row.classList.remove('hidden');
+    row.style.transition = 'none';
+    row.style.overflow = 'hidden';
+    row.style.marginTop = '0px';
+    row.style.height = '';
+    row.style.borderTopWidth = '';
+    row.style.borderRightWidth = '';
+    row.style.borderBottomWidth = '';
+    row.style.borderLeftWidth = '';
+    const targetHeight = row.getBoundingClientRect().height;
+    row.style.height = '0px';
+    row.style.borderTopWidth = '0px';
+    row.style.borderRightWidth = '0px';
+    row.style.borderBottomWidth = '0px';
+    row.style.borderLeftWidth = '0px';
+    void row.offsetHeight;
+    row.style.transition = 'height 0.15s ease-in, margin-top 0.15s ease-in, border-width 0.15s ease-in';
+    row.style.height = targetHeight + 'px';
+    row.style.marginTop = '-10px';
+    row.style.borderTopWidth = '5px';
+    row.style.borderRightWidth = '1px';
+    row.style.borderBottomWidth = '1px';
+    row.style.borderLeftWidth = '1px';
+    const cleanup = (e) => {
+        if (e && e.target !== row) return;
+        row.removeEventListener('transitionend', cleanup);
+        row._acAnimCleanup = null;
+        row.style.transition = '';
+        row.style.height = '';
+        row.style.marginTop = '';
+        row.style.overflow = '';
+        row.style.borderTopWidth = '';
+        row.style.borderRightWidth = '';
+        row.style.borderBottomWidth = '';
+        row.style.borderLeftWidth = '';
+        if (onDone) onDone();
+    };
+    row._acAnimCleanup = cleanup;
+    row.addEventListener('transitionend', cleanup);
+}
+
+function collapseLinkedRow(row, onDone) {
+    if (!row) return;
+    clearRowAnimation(row);
+    const startHeight = row.getBoundingClientRect().height;
+    row.style.boxSizing = 'border-box';
+    row.style.overflow = 'hidden';
+    row.style.transition = 'none';
+    row.style.height = startHeight + 'px';
+    row.style.marginTop = '-10px';
+    row.style.borderTopWidth = '5px';
+    row.style.borderRightWidth = '1px';
+    row.style.borderBottomWidth = '1px';
+    row.style.borderLeftWidth = '1px';
+    void row.offsetHeight;
+    row.style.transition = 'height 0.15s ease-in, margin-top 0.15s ease-in, border-width 0.15s ease-in';
+    row.style.height = '0px';
+    row.style.marginTop = '0px';
+    row.style.borderTopWidth = '0px';
+    row.style.borderRightWidth = '0px';
+    row.style.borderBottomWidth = '0px';
+    row.style.borderLeftWidth = '0px';
+    const cleanup = (e) => {
+        if (e && e.target !== row) return;
+        row.removeEventListener('transitionend', cleanup);
+        row._acAnimCleanup = null;
+        row.classList.add('hidden');
+        row.style.transition = '';
+        row.style.height = '';
+        row.style.marginTop = '';
+        row.style.overflow = '';
+        row.style.boxSizing = '';
+        row.style.borderTopWidth = '';
+        row.style.borderRightWidth = '';
+        row.style.borderBottomWidth = '';
+        row.style.borderLeftWidth = '';
+        if (onDone) onDone();
+    };
+    row._acAnimCleanup = cleanup;
+    row.addEventListener('transitionend', cleanup);
+}
+
+function setAcClickMode(mode, { save = true, resetFold = true } = {}) {
+    const normalizedMode = mode === 'keyboard' || mode === 'multiple' ? mode : 'mouse';
+    const modeChanged = normalizedMode !== acClickMode;
+    const cameFromFolded = modeChanged && acRowFolded;
+    if (resetFold && modeChanged) acRowFolded = false;
+    acClickMode = normalizedMode;
+
+    if (acModeMouseBtn) {
+        acModeMouseBtn.classList.toggle('selected', acClickMode === 'mouse');
+        acModeMouseBtn.setAttribute('aria-selected', acClickMode === 'mouse' ? 'true' : 'false');
+    }
+    if (acModeKeyboardBtn) {
+        acModeKeyboardBtn.classList.toggle('selected', acClickMode === 'keyboard');
+        acModeKeyboardBtn.setAttribute('aria-selected', acClickMode === 'keyboard' ? 'true' : 'false');
+    }
+    if (acModeMultipleBtn) {
+        acModeMultipleBtn.classList.toggle('selected', acClickMode === 'multiple');
+        acModeMultipleBtn.setAttribute('aria-selected', acClickMode === 'multiple' ? 'true' : 'false');
+    }
+
+    if (acClickMode === 'multiple') renderAcActionList();
+
+    const targetRow = acClickMode === 'mouse' ? acMouseButtonRow : acClickMode === 'keyboard' ? acClickKeyRow : acActionListRow;
+
+    if (acMouseButtonRow) acMouseButtonRow.classList.toggle('hidden', acClickMode !== 'mouse' || acRowFolded);
+    if (acClickKeyRow) acClickKeyRow.classList.toggle('hidden', acClickMode !== 'keyboard' || acRowFolded);
+    if (acActionListRow) {
+        const shouldShowActionList = acClickMode === 'multiple' && !acRowFolded;
+        acActionListRow.classList.toggle('hidden', !shouldShowActionList);
+        resetRowAnimationStyles(acActionListRow);
+    }
+    resetRowAnimationStyles(acMouseButtonRow);
+    resetRowAnimationStyles(acClickKeyRow);
+
+    if (targetRow) {
+        if (cameFromFolded) expandLinkedRow(targetRow);
+        else resetRowAnimationStyles(targetRow);
+    }
+
+    if (save) saveAcSettings();
+}
+
+if (acModeMouseBtn) acModeMouseBtn.addEventListener('click', () => setAcClickMode('mouse'));
+if (acModeKeyboardBtn) acModeKeyboardBtn.addEventListener('click', () => setAcClickMode('keyboard'));
+if (acModeMultipleBtn) acModeMultipleBtn.addEventListener('click', () => setAcClickMode('multiple'));
+
+if (acClickTypeRow) {
+    acClickTypeRow.addEventListener('click', (e) => {
+        if (acModeSwitch && acModeSwitch.contains(e.target)) return;
+        const linkedRow = acClickMode === 'mouse' ? acMouseButtonRow : acClickMode === 'keyboard' ? acClickKeyRow : acActionListRow;
+        if (!linkedRow) return;
+        acRowFolded = !acRowFolded;
+        if (acRowFolded) collapseLinkedRow(linkedRow);
+        else expandLinkedRow(linkedRow);
+        saveAcSettings();
+    });
+}
+
+function updateAcActionAddButton() {
+    if (!acActionAddBtn) return;
+    const full = acActionList.length >= AC_MAX_ACTIONS;
+    acActionAddBtn.disabled = full;
+}
+
+function removeAcAction(actionId) {
+    acActionList = acActionList.filter((action) => action.id !== actionId);
+    renderAcActionList();
+    saveAcSettings();
+}
+
+function startAcActionDetection(action, button) {
+    stopAcActionDetection();
+    acActionDetecting = { action, button, previous: action.key || null };
+    button.classList.add('listening');
+    button.textContent = 'Press any key...';
+    document.addEventListener('keydown', onAcActionDetectKeydown, true);
+    document.addEventListener('mousedown', onAcActionDetectMouseDown, true);
+    acActionInitialListenTimer = setTimeout(() => {
+        acActionInitialListenTimer = null;
+        stopAcActionDetection(true);
+    }, AC_MODIFIER_INITIAL_WAIT);
+}
+
+function clearAcActionModifierWait() {
+    if (acActionModifierTimer) {
+        clearTimeout(acActionModifierTimer);
+        acActionModifierTimer = null;
+    }
+    acActionPendingModifiers = [];
+}
+
+function armAcActionModifierWait(duration) {
+    if (acActionModifierTimer) clearTimeout(acActionModifierTimer);
+    if (acActionDetecting?.button) acActionDetecting.button.textContent = buildAcModifierCombo(acActionPendingModifiers);
+    acActionModifierTimer = setTimeout(() => {
+        const combo = buildAcModifierCombo(acActionPendingModifiers);
+        clearAcActionModifierWait();
+        finalizeAcActionKey(combo);
+    }, duration);
+}
+
+function finalizeAcActionKey(displayValue) {
+    if (!acActionDetecting) return;
+    if (displayValue !== null && displayValue === acToggleKeyValue) {
+        triggerWarn('ac-action-key-conflict');
+        stopAcActionDetection(true);
+        return;
+    }
+    acActionDetecting.action.key = displayValue;
+    stopAcActionDetection(false);
+    renderAcActionList();
+    saveAcSettings();
+}
+
+function stopAcActionDetection(restore = true) {
+    if (!acActionDetecting) return;
+    const { button, previous } = acActionDetecting;
+    clearAcActionModifierWait();
+    if (acActionInitialListenTimer) {
+        clearTimeout(acActionInitialListenTimer);
+        acActionInitialListenTimer = null;
+    }
+    button?.classList.remove('listening');
+    if (restore && button) button.textContent = previous || 'None';
+    document.removeEventListener('keydown', onAcActionDetectKeydown, true);
+    document.removeEventListener('mousedown', onAcActionDetectMouseDown, true);
+    acActionDetecting = null;
+}
+
+function onAcActionDetectMouseDown(e) {
+    if (!acActionDetecting) return;
+    if (!acActionDetecting.button?.contains(e.target)) stopAcActionDetection(true);
+}
+
+function onAcActionDetectKeydown(e) {
+    if (!acActionDetecting) return;
+    if (acActionInitialListenTimer) {
+        clearTimeout(acActionInitialListenTimer);
+        acActionInitialListenTimer = null;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+
+    const isCancelKey = e.key === 'Escape' || e.key === 'Meta';
+
+    if (acActionPendingModifiers.length) {
+        if (e.repeat) return;
+        if (isCancelKey) {
+            clearAcActionModifierWait();
+            finalizeAcActionKey(null);
+            return;
+        }
+        if (AC_MODIFIER_KEYS.includes(e.key)) {
+            if (!acActionPendingModifiers.includes(e.key)) acActionPendingModifiers.push(e.key);
+            armAcActionModifierWait(AC_MODIFIER_STACK_WAIT);
+            return;
+        }
+        const combo = buildAcModifierCombo(acActionPendingModifiers, getKeyDisplayName(e));
+        clearAcActionModifierWait();
+        finalizeAcActionKey(combo);
+        return;
+    }
+
+    if (isCancelKey) {
+        finalizeAcActionKey(null);
+        return;
+    }
+
+    if (e.repeat) return;
+
+    if (AC_MODIFIER_KEYS.includes(e.key)) {
+        acActionPendingModifiers = [e.key];
+        armAcActionModifierWait(AC_MODIFIER_INITIAL_WAIT);
+        return;
+    }
+
+    finalizeAcActionKey(getKeyDisplayName(e));
+}
+
+function renderAcActionList() {
+    if (!acActionListEl) return;
+    acActionListEl.innerHTML = '';
+    acActionList.forEach((action) => {
+        const item = document.createElement('div');
+        item.className = 'ac-action-item';
+        const icon = document.createElement('i');
+        icon.className = action.type === 'keyboard' ? 'fa-solid fa-keyboard' : 'fa-solid fa-computer-mouse';
+        const type = document.createElement('span');
+        type.className = 'ac-action-type';
+        type.textContent = action.type === 'keyboard' ? 'Keyboard' : 'Mouse';
+        item.append(icon, type);
+
+        if (action.type === 'keyboard') {
+            const keyButton = document.createElement('button');
+            keyButton.type = 'button';
+            keyButton.className = 'ac-key-detect';
+            keyButton.textContent = action.key || 'None';
+            keyButton.addEventListener('click', () => startAcActionDetection(action, keyButton));
+            item.appendChild(keyButton);
+        } else {
+            const select = document.createElement('select');
+            select.className = 'dropdown';
+            select.innerHTML = '<option value="left">Left</option><option value="right">Right</option><option value="middle">Middle</option>';
+            select.value = action.mouseButton || 'left';
+            select.addEventListener('change', () => { action.mouseButton = select.value; saveAcSettings(); });
+            item.appendChild(select);
+            initCustomDropdown(select);
+        }
+
+        const remove = document.createElement('button');
+        remove.type = 'button';
+        remove.className = 'ac-action-remove';
+        remove.setAttribute('aria-label', 'Remove action');
+        remove.innerHTML = '<svg fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>';
+        remove.addEventListener('click', () => removeAcAction(action.id));
+        item.appendChild(remove);
+        acActionListEl.appendChild(item);
+    });
+    updateAcActionAddButton();
+    if (acActionListRow) acActionListRow.toggleAttribute('has-item', acActionList.length > 0);
+}
+
+function createAcAction(type) {
+    if (acActionList.length >= AC_MAX_ACTIONS) return;
+    acActionList.unshift({
+        id: (typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `action-${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        type: type === 'keyboard' ? 'keyboard' : 'mouse',
+        mouseButton: 'left',
+        key: null
+    });
+    renderAcActionList();
+    saveAcSettings();
+}
+
+
+const acToggleKeyBtn = document.getElementById('ac-toggle-key');
+const acToggleKeyLabel = document.getElementById('ac-toggle-key-label');
+const acHotkeyHint = document.getElementById('ac-hotkey-hint');
+
+const KEY_DISPLAY_NAMES = {
+    ' ': 'Space',
+    'Control': 'Ctrl',
+    'Delete': 'Del',
+    'Backspace': 'Backspace',
+    'Enter': 'Enter',
+    'Tab': 'Tab',
+    'CapsLock': 'Caps Lock',
+    'PageUp': 'PgUp',
+    'PageDown': 'PgDn',
+    'Home': 'Home',
+    'End': 'End',
+    'Insert': 'Insert',
+    'ArrowUp': 'Up Arrow',
+    'ArrowDown': 'Down Arrow',
+    'ArrowLeft': 'Left Arrow',
+    'ArrowRight': 'Right Arrow',
+    ',': 'Comma',
+    '.': 'Period',
+    ';': 'Semicolon',
+    "'": 'Quote',
+    '/': 'Slash',
+    '\\': 'Backslash',
+    '[': '[',
+    ']': ']',
+    '-': '-',
+    '=': '=',
+    '`': '`',
+};
+
+function getKeyDisplayName(e) {
+    const key = e.key;
+    if (/^F([1-9]|1[0-9]|2[0-4])$/.test(key)) return key;
+    if (/^[a-zA-Z]$/.test(key)) return key.toUpperCase();
+    if (/^[0-9]$/.test(key)) return key;
+    if (KEY_DISPLAY_NAMES[key]) return KEY_DISPLAY_NAMES[key];
+    return key.length === 1 ? key.toUpperCase() : key;
+}
+
+let acToggleKeyValue = null;
+let acListeningForKey = false;
+
+function updateHotkeyHint() {
+    if (!acHotkeyHint) return;
+    if (acToggleKeyValue) {
+        acHotkeyHint.textContent = acToggleKeyValue;
+        acHotkeyHint.style.display = '';
+    } else {
+        acHotkeyHint.textContent = '';
+        acHotkeyHint.style.display = 'none';
+    }
+}
+
+function setAcToggleKey(displayValue) {
+    acToggleKeyValue = displayValue;
+    if (acToggleKeyLabel) acToggleKeyLabel.textContent = displayValue || 'None';
+    updateHotkeyHint();
+    saveAcSettings();
+}
+
+const AC_MODIFIER_KEYS = ['Control', 'Shift', 'Alt'];
+const AC_MODIFIER_ORDER = ['Control', 'Shift', 'Alt'];
+const AC_MODIFIER_INITIAL_WAIT = 1200;
+const AC_MODIFIER_STACK_WAIT = 1200;
+
+let acPendingModifiers = [];
+let acModifierTimer = null;
+
+function buildAcModifierCombo(modifiers, extraKeyDisplay) {
+    const parts = AC_MODIFIER_ORDER
+        .filter((mod) => modifiers.includes(mod))
+        .map((mod) => KEY_DISPLAY_NAMES[mod] || mod);
+    if (extraKeyDisplay) parts.push(extraKeyDisplay);
+    return parts.join(' + ');
+}
+
+function clearAcModifierWait() {
+    if (acModifierTimer) {
+        clearTimeout(acModifierTimer);
+        acModifierTimer = null;
+    }
+    acPendingModifiers = [];
+}
+
+function finalizeAcKey(displayValue) {
+    if (displayValue !== null && displayValue === acClickKeyValue) {
+        triggerWarn('ac-toggle-key-conflict');
+        stopAcListening();
+        return;
+    }
+    if (displayValue !== null && acActionList.some((action) => action.type === 'keyboard' && action.key === displayValue)) {
+        triggerWarn('ac-toggle-action-key-conflict');
+        stopAcListening();
+        return;
+    }
+    setAcToggleKey(displayValue);
+    stopAcListening();
+}
+
+let acInitialListenTimer = null;
+
+function armAcModifierWait(duration) {
+    if (acModifierTimer) clearTimeout(acModifierTimer);
+    if (acToggleKeyLabel) acToggleKeyLabel.textContent = buildAcModifierCombo(acPendingModifiers);
+    acModifierTimer = setTimeout(() => {
+        const combo = buildAcModifierCombo(acPendingModifiers);
+        clearAcModifierWait();
+        finalizeAcKey(combo);
+    }, duration);
+}
+
+function onAcDetectKeydown(e) {
+    if (acInitialListenTimer) {
+        clearTimeout(acInitialListenTimer);
+        acInitialListenTimer = null;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+
+    const isCancelKey = e.key === 'Escape' || e.key === 'Meta';
+
+    if (acPendingModifiers.length) {
+        if (e.repeat) return;
+        if (isCancelKey) {
+            clearAcModifierWait();
+            finalizeAcKey(null);
+            return;
+        }
+        if (AC_MODIFIER_KEYS.includes(e.key)) {
+            if (!acPendingModifiers.includes(e.key)) acPendingModifiers.push(e.key);
+            armAcModifierWait(AC_MODIFIER_STACK_WAIT);
+            return;
+        }
+        const combo = buildAcModifierCombo(acPendingModifiers, getKeyDisplayName(e));
+        clearAcModifierWait();
+        finalizeAcKey(combo);
+        return;
+    }
+
+    if (isCancelKey) {
+        finalizeAcKey(null);
+        return;
+    }
+
+    if (e.repeat) return;
+
+    if (AC_MODIFIER_KEYS.includes(e.key)) {
+        acPendingModifiers = [e.key];
+        armAcModifierWait(AC_MODIFIER_INITIAL_WAIT);
+        return;
+    }
+
+    finalizeAcKey(getKeyDisplayName(e));
+}
+
+function stopAcListening() {
+    acListeningForKey = false;
+    clearAcModifierWait();
+    if (acInitialListenTimer) {
+        clearTimeout(acInitialListenTimer);
+        acInitialListenTimer = null;
+    }
+    if (acToggleKeyBtn) acToggleKeyBtn.classList.remove('listening');
+    if (acToggleKeyLabel) acToggleKeyLabel.textContent = acToggleKeyValue || 'None';
+    document.removeEventListener('keydown', onAcDetectKeydown, true);
+}
+
+if (acToggleKeyBtn) {
+    acToggleKeyBtn.addEventListener('focusout', (e) => {
+        if (!acToggleKeyBtn.contains(e.relatedTarget)) stopAcListening();
+    });
+    acToggleKeyBtn.addEventListener('click', () => {
+        if (acListeningForKey) return;
+        acListeningForKey = true;
+        acToggleKeyBtn.classList.add('listening');
+        acToggleKeyLabel.textContent = 'Press any key...';
+        document.addEventListener('keydown', onAcDetectKeydown, true);
+        acInitialListenTimer = setTimeout(() => {
+            acInitialListenTimer = null;
+            stopAcListening();
+        }, AC_MODIFIER_INITIAL_WAIT);
+    });
+    setAcToggleKey(null);
+}
+
+
+
+const acClickKeyBtn = document.getElementById('ac-click-key');
+const acClickKeyLabel = document.getElementById('ac-click-key-label');
+
+let acClickKeyValue = null;
+let acListeningForClickKey = false;
+
+let acClickPendingModifiers = [];
+let acClickModifierTimer = null;
+
+function setAcClickKey(displayValue) {
+    acClickKeyValue = displayValue;
+    if (acClickKeyLabel) acClickKeyLabel.textContent = displayValue || 'None';
+    saveAcSettings();
+}
+
+function clearAcClickModifierWait() {
+    if (acClickModifierTimer) {
+        clearTimeout(acClickModifierTimer);
+        acClickModifierTimer = null;
+    }
+    acClickPendingModifiers = [];
+}
+
+function finalizeAcClickKey(displayValue) {
+    if (displayValue !== null && displayValue === acToggleKeyValue) {
+        triggerWarn('ac-click-key-conflict');
+        stopAcClickListening();
+        return;
+    }
+    setAcClickKey(displayValue);
+    stopAcClickListening();
+}
+
+let acClickInitialListenTimer = null;
+
+function armAcClickModifierWait(duration) {
+    if (acClickModifierTimer) clearTimeout(acClickModifierTimer);
+    if (acClickKeyLabel) acClickKeyLabel.textContent = buildAcModifierCombo(acClickPendingModifiers);
+    acClickModifierTimer = setTimeout(() => {
+        const combo = buildAcModifierCombo(acClickPendingModifiers);
+        clearAcClickModifierWait();
+        finalizeAcClickKey(combo);
+    }, duration);
+}
+
+function onAcClickDetectKeydown(e) {
+    if (acClickInitialListenTimer) {
+        clearTimeout(acClickInitialListenTimer);
+        acClickInitialListenTimer = null;
+    }
+    e.preventDefault();
+    e.stopPropagation();
+
+    const isCancelKey = e.key === 'Escape' || e.key === 'Meta';
+
+    if (acClickPendingModifiers.length) {
+        if (e.repeat) return;
+        if (isCancelKey) {
+            clearAcClickModifierWait();
+            finalizeAcClickKey(null);
+            return;
+        }
+        if (AC_MODIFIER_KEYS.includes(e.key)) {
+            if (!acClickPendingModifiers.includes(e.key)) acClickPendingModifiers.push(e.key);
+            armAcClickModifierWait(AC_MODIFIER_STACK_WAIT);
+            return;
+        }
+        const combo = buildAcModifierCombo(acClickPendingModifiers, getKeyDisplayName(e));
+        clearAcClickModifierWait();
+        finalizeAcClickKey(combo);
+        return;
+    }
+
+    if (isCancelKey) {
+        finalizeAcClickKey(null);
+        return;
+    }
+
+    if (e.repeat) return;
+
+    if (AC_MODIFIER_KEYS.includes(e.key)) {
+        acClickPendingModifiers = [e.key];
+        armAcClickModifierWait(AC_MODIFIER_INITIAL_WAIT);
+        return;
+    }
+
+    finalizeAcClickKey(getKeyDisplayName(e));
+}
+
+function stopAcClickListening() {
+    acListeningForClickKey = false;
+    clearAcClickModifierWait();
+    if (acClickInitialListenTimer) {
+        clearTimeout(acClickInitialListenTimer);
+        acClickInitialListenTimer = null;
+    }
+    if (acClickKeyBtn) acClickKeyBtn.classList.remove('listening');
+    if (acClickKeyLabel) acClickKeyLabel.textContent = acClickKeyValue || 'None';
+    document.removeEventListener('keydown', onAcClickDetectKeydown, true);
+}
+
+if (acClickKeyBtn) {
+    acClickKeyBtn.addEventListener('focusout', (e) => {
+        if (!acClickKeyBtn.contains(e.relatedTarget)) stopAcClickListening();
+    });
+    acClickKeyBtn.addEventListener('click', () => {
+        if (acListeningForClickKey) return;
+        acListeningForClickKey = true;
+        acClickKeyBtn.classList.add('listening');
+        acClickKeyLabel.textContent = 'Press any key...';
+        document.addEventListener('keydown', onAcClickDetectKeydown, true);
+        acClickInitialListenTimer = setTimeout(() => {
+            acClickInitialListenTimer = null;
+            stopAcClickListening();
+        }, AC_MODIFIER_INITIAL_WAIT);
+    });
+    setAcClickKey(null);
+}
+
+
+
+const acAutosizeCanvas = document.createElement('canvas');
+const acAutosizeCtx = acAutosizeCanvas.getContext('2d');
+
+function autosizeAcInput(input) {
+    if (!input) return;
+    const style = getComputedStyle(input);
+    acAutosizeCtx.font = `${style.fontStyle} ${style.fontWeight} ${style.fontSize} ${style.fontFamily}`;
+    const text = input.value !== '' ? input.value : (input.placeholder || '0');
+    const textWidth = acAutosizeCtx.measureText(text).width;
+    input.style.width = `${Math.ceil(textWidth) + 1}px`;
+}
+
+if (acCpsInput) autosizeAcInput(acCpsInput);
+if (acHoldTimeInput) autosizeAcInput(acHoldTimeInput);
+
+
+
+const AC_MAX_CPS = 1000;
+const AC_CPS_WARN_THRESHOLD = 800;
+let acLastValidCps = acCpsInput ? (parseInt(acCpsInput.value, 10) || 1) : 1;
+
+function updateAcMaxHoldTime() {
+    if (!acHoldTimeInput) return;
+    const maxHoldTime = Math.max(1, Math.floor(1000 / acLastValidCps));
+    acHoldTimeInput.max = maxHoldTime;
+
+    if (acHoldTimeInput.value === '') return;
+    let holdValue = parseInt(acHoldTimeInput.value, 10);
+    if (isNaN(holdValue)) return;
+    if (holdValue > maxHoldTime) {
+        acHoldTimeInput.value = maxHoldTime;
+        autosizeAcInput(acHoldTimeInput);
+    }
+}
+
+function handleAcCpsInput() {
+    if (acCpsInput.value === '') return;
+    let value = parseInt(acCpsInput.value, 10);
+    if (isNaN(value)) return;
+    if (value <= 0) value = 1;
+    if (value > AC_MAX_CPS) value = AC_MAX_CPS;
+    acCpsInput.value = value;
+    const previousValue = acLastValidCps;
+    acLastValidCps = value;
+    if (!acRestoringSettings && previousValue <= AC_CPS_WARN_THRESHOLD && value > AC_CPS_WARN_THRESHOLD) triggerWarn('ac-cps-high');
+    updateAcMaxHoldTime();
+    autosizeAcInput(acCpsInput);
+}
+
+function handleAcCpsChange() {
+    let value = parseInt(acCpsInput.value, 10);
+    if (isNaN(value) || value <= 0) value = 1;
+    if (value > AC_MAX_CPS) value = AC_MAX_CPS;
+    acCpsInput.value = value;
+    const previousValue = acLastValidCps;
+    acLastValidCps = value;
+    if (!acRestoringSettings && previousValue <= AC_CPS_WARN_THRESHOLD && value > AC_CPS_WARN_THRESHOLD) triggerWarn('ac-cps-high');
+    updateAcMaxHoldTime();
+    autosizeAcInput(acCpsInput);
+    saveAcSettings();
+}
+
+function handleAcHoldTimeInput() {
+    if (acHoldTimeInput.value === '') return;
+    const maxHoldTime = parseInt(acHoldTimeInput.max, 10) || 1;
+    let value = parseInt(acHoldTimeInput.value, 10);
+    if (isNaN(value)) return;
+    if (value <= 0) value = 1;
+    if (value > maxHoldTime) value = maxHoldTime;
+    acHoldTimeInput.value = value;
+    autosizeAcInput(acHoldTimeInput);
+}
+
+function handleAcHoldTimeChange() {
+    const maxHoldTime = parseInt(acHoldTimeInput.max, 10) || 1;
+    let value = parseInt(acHoldTimeInput.value, 10);
+    if (isNaN(value) || value <= 0) value = 1;
+    if (value > maxHoldTime) value = maxHoldTime;
+    acHoldTimeInput.value = value;
+    autosizeAcInput(acHoldTimeInput);
+    saveAcSettings();
+}
+
+if (acCpsInput) {
+    acCpsInput.addEventListener('input', handleAcCpsInput);
+    acCpsInput.addEventListener('change', handleAcCpsChange);
+}
+if (acHoldTimeInput) {
+    acHoldTimeInput.addEventListener('input', handleAcHoldTimeInput);
+    acHoldTimeInput.addEventListener('change', handleAcHoldTimeChange);
+}
+
+document.querySelectorAll('.autoclicker-input-wrap').forEach((wrap) => {
+    const input = wrap.querySelector('.autoclicker-input');
+    if (!input) return;
+
+    wrap.addEventListener('mousedown', (e) => {
+        if (e.target === input) return;
+
+        e.preventDefault();
+        input.focus();
+
+        const end = input.value.length;
+        try {
+            input.setSelectionRange(end, end);
+        } catch (_) {}
+    });
+});
+
+updateAcMaxHoldTime();
+
+
+
+(function restoreAcSettings() {
+    const saved = loadAcSettings();
+    acRestoringSettings = true;
+
+    if (acClickTypeSelect && saved.clickType) {
+        acClickTypeSelect.value = saved.clickType;
+        acClickTypeSelect.__dropdownSync?.();
+    }
+    acRowFolded = !!saved.actionListFolded;
+    if (saved.clickMode) {
+        setAcClickMode(saved.clickMode, { save: false, resetFold: false });
+    }
+    if (acCpsInput && saved.cps !== undefined) {
+        acCpsInput.value = saved.cps;
+        handleAcCpsChange();
+    }
+    if (acHoldTimeInput && saved.holdTime !== undefined) {
+        acHoldTimeInput.value = saved.holdTime;
+        handleAcHoldTimeChange();
+    }
+    if (saved.toggleKey) {
+        setAcToggleKey(saved.toggleKey);
+    }
+    if (saved.clickKey) {
+        setAcClickKey(saved.clickKey);
+    }
+    if (Array.isArray(saved.actions)) {
+        acActionList = saved.actions
+            .filter((action) => action && (action.type === 'mouse' || action.type === 'keyboard'))
+            .slice(0, AC_MAX_ACTIONS)
+            .map((action) => ({
+                id: action.id || ((typeof crypto !== 'undefined' && crypto.randomUUID) ? crypto.randomUUID() : `action-${Date.now()}-${Math.random().toString(16).slice(2)}`),
+                type: action.type,
+                mouseButton: action.mouseButton || 'left',
+                key: action.key || null
+            }));
+        renderAcActionList();
+    }
+
+    acRestoringSettings = false;
+    saveAcSettings();
+})();
+
+
+
+const acStartBtn = document.getElementById('ac-start');
+const acStartLabel = document.getElementById('ac-start-label');
+const acStartIcon = acStartBtn ? acStartBtn.querySelector('i') : null;
+const acTabEl = document.getElementById('autoclicker');
+const acConfigEl = acTabEl ? acTabEl.querySelector('.autoclicker') : null;
+
+let acRunning = false;
+let acClickTimer = null;
+
+function performAcClick() {
+}
+
+function startAcClicking() {
+    if (acRunning) return;
+
+    if (acClickMode === 'keyboard' && !acClickKeyValue) {
+        triggerWarn('ac-no-key-set');
+        return;
+    }
+    if (acClickMode === 'multiple') {
+        if (!acActionList.length) {
+            triggerWarn('ac-no-actions');
+            return;
+        }
+        if (!acActionList.some((action) => action.type !== 'keyboard' || !!action.key)) {
+            triggerWarn('ac-no-key-set');
+            return;
+        }
+    }
+
+    acRunning = true;
+
+    if (acStartBtn) acStartBtn.classList.add('running');
+    if (acTabEl) acTabEl.setAttribute('running', '');
+    if (acConfigEl) {
+        if (acConfigEl.contains(document.activeElement)) document.activeElement.blur();
+        acConfigEl.inert = true;
+    }
+    if (acStartLabel) acStartLabel.textContent = 'Stop';
+    if (acStartIcon) {
+        acStartIcon.classList.remove('fa-play');
+        acStartIcon.classList.add('fa-stop');
+    }
+
+    const cps = acCpsInput ? (parseInt(acCpsInput.value, 10) || 1) : 1;
+    const intervalMs = Math.max(1, Math.round(1000 / cps));
+    acClickTimer = setInterval(performAcClick, intervalMs);
+}
+
+function stopAcClicking() {
+    if (!acRunning) return;
+    acRunning = false;
+
+    if (acClickTimer) {
+        clearInterval(acClickTimer);
+        acClickTimer = null;
+    }
+
+    if (acStartBtn) acStartBtn.classList.remove('running');
+    if (acTabEl) acTabEl.removeAttribute('running');
+    if (acConfigEl) acConfigEl.inert = false;
+    if (acStartLabel) acStartLabel.textContent = 'Start';
+    if (acStartIcon) {
+        acStartIcon.classList.remove('fa-stop');
+        acStartIcon.classList.add('fa-play');
+    }
+}
+
+function toggleAcRunning() {
+    if (acRunning) {
+        stopAcClicking();
+    } else {
+        startAcClicking();
+    }
+}
+
+if (acStartBtn) {
+    acStartBtn.addEventListener('click', toggleAcRunning);
+}
+
+function isAcTypingTarget(el) {
+    if (!el) return false;
+    const tag = el.tagName;
+    return tag === 'INPUT' || tag === 'TEXTAREA' || el.isContentEditable;
+}
+
+document.addEventListener('keydown', (e) => {
+    if (!acToggleKeyValue) return;
+    if (acListeningForKey) return;
+    if (e.repeat) return;
+    if (!acRunning && isAcTypingTarget(e.target)) return;
+
+    let pressedDisplay;
+    if (AC_MODIFIER_KEYS.includes(e.key)) {
+        pressedDisplay = buildAcModifierCombo([e.key]);
+    } else {
+        const heldModifiers = AC_MODIFIER_ORDER.filter((mod) => e.getModifierState(mod));
+        pressedDisplay = buildAcModifierCombo(heldModifiers, getKeyDisplayName(e));
+    }
+
+    if (pressedDisplay === acToggleKeyValue) {
+        e.preventDefault();
+        toggleAcRunning();
+    }
+});
+
 
 document.addEventListener('keydown', (e) => {
     if (e.key !== 'Enter') return;
@@ -1736,6 +3129,12 @@ const INDICATOR_PULL_MS = 150;
 const INDICATOR_SETTLE_MS = 240;
 const INDICATOR_PULL_EASE = 'cubic-bezier(0.16, 1, 0.3, 1)';
 const INDICATOR_SETTLE_EASE = 'cubic-bezier(0.3, 1.4, 0.55, 1)';
+const INDICATOR_PULL_EASE_REVERSE = 'cubic-bezier(0.7, 0, 0.84, 0)';
+const INDICATOR_SETTLE_EASE_REVERSE = 'cubic-bezier(0.45, 0, 0.7, -0.4)';
+const INDICATOR_CURRENT_DELAY_MS = 80;
+const INDICATOR_GHOST_SETTLE_MS = INDICATOR_SETTLE_MS / 2;
+const INDICATOR_GHOST_PULL_MS = INDICATOR_PULL_MS / 2;
+const INDICATOR_GHOST_TOTAL_MS = INDICATOR_GHOST_SETTLE_MS + INDICATOR_GHOST_PULL_MS;
 let indicatorPositioned = false;
 let indicatorSettleTimeout = null;
 let indicatorHostButton = null;
@@ -1773,6 +3172,8 @@ function moveSidebarIndicator(button) {
 
     if (!movingDown && !movingUp) return;
 
+    if (previousButton) spawnSidebarIndicatorGhost(previousButton, movingDown);
+
     const leadTop = movingDown ? 0 : buttonHeight - INDICATOR_LEAD_HEIGHT;
     const stretchTop = movingDown ? 0 : buttonHeight - INDICATOR_STRETCH_HEIGHT;
 
@@ -1781,17 +3182,53 @@ function moveSidebarIndicator(button) {
     sidebarIndicator.style.height = `${INDICATOR_LEAD_HEIGHT}px`;
     void sidebarIndicator.offsetHeight;
 
-    sidebarIndicator.style.transition = `top ${INDICATOR_PULL_MS}ms ${INDICATOR_PULL_EASE}, height ${INDICATOR_PULL_MS}ms ${INDICATOR_PULL_EASE}`;
-    requestAnimationFrame(() => {
-        sidebarIndicator.style.top = `${stretchTop}px`;
-        sidebarIndicator.style.height = `${INDICATOR_STRETCH_HEIGHT}px`;
-    });
+    setTimeout(() => {
+        sidebarIndicator.style.transition = `top ${INDICATOR_PULL_MS}ms ${INDICATOR_PULL_EASE}, height ${INDICATOR_PULL_MS}ms ${INDICATOR_PULL_EASE}`;
+        requestAnimationFrame(() => {
+            sidebarIndicator.style.top = `${stretchTop}px`;
+            sidebarIndicator.style.height = `${INDICATOR_STRETCH_HEIGHT}px`;
+        });
+    }, INDICATOR_CURRENT_DELAY_MS);
 
     indicatorSettleTimeout = setTimeout(() => {
         sidebarIndicator.style.transition = `top ${INDICATOR_SETTLE_MS}ms ${INDICATOR_SETTLE_EASE}, height ${INDICATOR_SETTLE_MS}ms ${INDICATOR_SETTLE_EASE}`;
         sidebarIndicator.style.top = `${restTop}px`;
         sidebarIndicator.style.height = `${INDICATOR_REST_HEIGHT}px`;
-    }, INDICATOR_PULL_MS);
+    }, INDICATOR_CURRENT_DELAY_MS + INDICATOR_PULL_MS);
+}
+
+function spawnSidebarIndicatorGhost(previousButton, movingDown) {
+    const prevHeight = previousButton.offsetHeight;
+    const prevRestTop = prevHeight / 2 - INDICATOR_REST_HEIGHT / 2;
+
+    const ghostLeadTop = movingDown ? prevHeight - INDICATOR_LEAD_HEIGHT : 0;
+    const ghostStretchTop = movingDown ? prevHeight - INDICATOR_STRETCH_HEIGHT : 0;
+
+    const ghost = sidebarIndicator.cloneNode(false);
+    ghost.removeAttribute('id');
+    ghost.classList.add('show');
+    ghost.style.transition = 'none';
+    ghost.style.top = `${prevRestTop}px`;
+    ghost.style.height = `${INDICATOR_REST_HEIGHT}px`;
+    previousButton.appendChild(ghost);
+    void ghost.offsetHeight;
+
+    ghost.style.transition = `top ${INDICATOR_GHOST_SETTLE_MS}ms ${INDICATOR_SETTLE_EASE_REVERSE}, height ${INDICATOR_GHOST_SETTLE_MS}ms ${INDICATOR_SETTLE_EASE_REVERSE}, opacity ${INDICATOR_GHOST_TOTAL_MS}ms linear`;
+    requestAnimationFrame(() => {
+        ghost.style.top = `${ghostStretchTop}px`;
+        ghost.style.height = `${INDICATOR_STRETCH_HEIGHT}px`;
+        ghost.style.opacity = '0';
+    });
+
+    setTimeout(() => {
+        ghost.style.transition = `top ${INDICATOR_GHOST_PULL_MS}ms ${INDICATOR_PULL_EASE_REVERSE}, height ${INDICATOR_GHOST_PULL_MS}ms ${INDICATOR_PULL_EASE_REVERSE}`;
+        ghost.style.top = `${ghostLeadTop}px`;
+        ghost.style.height = `${INDICATOR_LEAD_HEIGHT}px`;
+    }, INDICATOR_GHOST_SETTLE_MS);
+
+    setTimeout(() => {
+        ghost.remove();
+    }, INDICATOR_GHOST_TOTAL_MS);
 }
 
 const TAB_TITLES = {
@@ -1799,19 +3236,43 @@ const TAB_TITLES = {
     colorformat: 'Color Format',
     mediafileconverter: 'Media File Converter',
     autoclicker: 'Auto Clicker',
-    settings: 'Settings'
+    qrcodeconverter: 'QR Code Maker',
+    settings: 'Settings',
+    'sidebar-editor': 'Sidebar Editor'
 };
 
 const titlebarTitle = document.getElementById('titlebar-title');
+let currentPanelId = 'fontstyler';
 
-function updateWindowTitle(panelId) {
-    const label = TAB_TITLES[panelId] || panelId;
-    const fullTitle = `fTools | ${label}`;
-
+function applyTitlebarTitle(fullTitle) {
     if (titlebarTitle) titlebarTitle.textContent = fullTitle;
     document.title = fullTitle;
 
     window.__TAURI__?.window?.getCurrentWindow?.()?.setTitle?.(fullTitle).catch(() => {});
+}
+
+function updateWindowTitle(panelId) {
+    currentPanelId = panelId;
+    const label = TAB_TITLES[panelId] || panelId;
+    applyTitlebarTitle(appSettings.hideToolInTitlebar ? 'fTools' : `fTools | ${label}`);
+}
+
+function setConversionProgressTitle(percent) {
+    const label = percent >= 100 ? '100%' : `${percent.toFixed(1)}%`;
+    applyTitlebarTitle(appSettings.hideToolInTitlebar ? 'fTools' : `fTools | Converting a file ${label}`);
+}
+
+function suspendQrSliderAnim() {
+    const thumb = document.getElementById('qr-ecl-thumb');
+    const fill = document.getElementById('qr-ecl-fill');
+    if (!thumb && !fill) return;
+    thumb?.classList.add('no-anim');
+    fill?.classList.add('no-anim');
+    clearTimeout(suspendQrSliderAnim._t);
+    suspendQrSliderAnim._t = setTimeout(() => {
+        thumb?.classList.remove('no-anim');
+        fill?.classList.remove('no-anim');
+    }, 50);
 }
 
 function activatePanel(panelId) {
@@ -1821,12 +3282,265 @@ function activatePanel(panelId) {
     panels.forEach(panel => panel.classList.remove('active'));
     sidebarButtons.forEach(button => button.classList.remove('active'));
 
+    if (panelId === 'qrcodeconverter') {
+        suspendQrSliderAnim();
+    }
+
     targetPanel.classList.add('active');
-    const activeButton = document.getElementById(`t-${panelId}`);
+    const activeButtonId = panelId === 'sidebar-editor' ? 'settings' : panelId;
+    const activeButton = document.getElementById(`t-${activeButtonId}`);
     activeButton?.classList.add('active');
     moveSidebarIndicator(activeButton);
     updateWindowTitle(panelId);
 }
+
+const SIDEBAR_CONFIG_KEY = 'ftools:sidebar-config';
+const MAX_VISIBLE_SIDEBAR_TOOLS = 4;
+const DEFAULT_HIDDEN_SIDEBAR_IDS = ['qrcodeconverter'];
+const EDITABLE_SIDEBAR_IDS = Array.from(sidebarButtons)
+    .map(button => button.id.replace(/^t-/, ''))
+    .filter(id => id !== 'settings');
+
+function loadSidebarConfig() {
+    try {
+        const raw = localStorage.getItem(SIDEBAR_CONFIG_KEY);
+        const saved = raw ? JSON.parse(raw) : {};
+        const savedOrder = Array.isArray(saved.order) ? saved.order.filter(id => EDITABLE_SIDEBAR_IDS.includes(id)) : [];
+        const newIds = EDITABLE_SIDEBAR_IDS.filter(id => !savedOrder.includes(id));
+        const order = [...savedOrder, ...newIds];
+        const savedHidden = Array.isArray(saved.hidden) ? saved.hidden.filter(id => EDITABLE_SIDEBAR_IDS.includes(id)) : [];
+        const hidden = [...savedHidden, ...newIds.filter(id => DEFAULT_HIDDEN_SIDEBAR_IDS.includes(id) && !savedHidden.includes(id))];
+        return { order, hidden };
+    } catch (err) {
+        console.error('Could not load sidebar config:', err);
+        return { order: [...EDITABLE_SIDEBAR_IDS], hidden: [...DEFAULT_HIDDEN_SIDEBAR_IDS] };
+    }
+}
+
+function saveSidebarConfig(config) {
+    try {
+        localStorage.setItem(SIDEBAR_CONFIG_KEY, JSON.stringify(config));
+    } catch (err) {
+        console.error('Could not save sidebar config:', err);
+    }
+}
+
+let sidebarConfig = loadSidebarConfig();
+const sidebarContainer = document.querySelector('.sidebar');
+
+function updateSidebarTabindexes() {
+    if (!sidebarContainer) return;
+
+    const orderedButtons = Array.from(sidebarContainer.children)
+        .filter(child => child.classList.contains('sidebar-button') && child.id !== 't-settings');
+
+    orderedButtons.forEach((button, index) => {
+        button.tabIndex = index + 1;
+    });
+
+    const settingsButton = document.getElementById('t-settings');
+    if (settingsButton) settingsButton.tabIndex = orderedButtons.length + 1;
+}
+
+function applySidebarConfig() {
+    if (!sidebarContainer) return;
+
+    const buttons = EDITABLE_SIDEBAR_IDS
+        .map(id => document.getElementById(`t-${id}`))
+        .filter(Boolean);
+
+    const firstRects = new Map();
+    buttons.forEach(button => firstRects.set(button, button.getBoundingClientRect()));
+
+    sidebarConfig.order.forEach(id => {
+        const button = document.getElementById(`t-${id}`);
+        if (button) sidebarContainer.appendChild(button);
+    });
+    EDITABLE_SIDEBAR_IDS.forEach(id => {
+        const button = document.getElementById(`t-${id}`);
+        button?.classList.toggle('sidebar-button-hidden', sidebarConfig.hidden.includes(id));
+    });
+
+    updateSidebarTabindexes();
+
+    buttons.forEach(button => {
+        if (button.classList.contains('sidebar-button-hidden')) return;
+
+        const firstRect = firstRects.get(button);
+        if (firstRect.width === 0 && firstRect.height === 0) return;
+
+        const lastRect = button.getBoundingClientRect();
+        const deltaY = firstRect.top - lastRect.top;
+        if (deltaY === 0) return;
+
+        button.style.transition = 'none';
+        button.style.transform = `translateX(-50%) translateY(${deltaY}px)`;
+        void button.offsetHeight;
+        button.style.transition = 'transform 0.15s ease';
+        button.style.transform = 'translateX(-50%)';
+        button.addEventListener('transitionend', () => {
+            button.style.transition = '';
+            button.style.transform = '';
+        }, { once: true });
+    });
+}
+
+applySidebarConfig();
+
+let editorDraggingItem = null;
+
+function getEditorDragAfterElement(container, y) {
+    const items = Array.from(container.querySelectorAll('.editor-item:not(.dragging)'));
+    return items.reduce((closest, child) => {
+        const box = child.getBoundingClientRect();
+        const offset = y - box.top - box.height / 2;
+        if (offset < 0 && offset > closest.offset) return { offset, element: child };
+        return closest;
+    }, { offset: Number.NEGATIVE_INFINITY, element: null }).element;
+}
+
+function startEditorDrag(e, item) {
+    e.preventDefault();
+    editorDraggingItem = item;
+    item.classList.add('dragging');
+    document.body.classList.add('editor-dragging');
+    const handle = e.currentTarget;
+    handle.setPointerCapture?.(e.pointerId);
+    const list = item.parentElement;
+
+    function onMove(ev) {
+        if (!editorDraggingItem) return;
+        const afterElement = getEditorDragAfterElement(list, ev.clientY);
+        if (afterElement === editorDraggingItem) return;
+        if (afterElement == null && list.lastElementChild === editorDraggingItem) return;
+
+        const others = Array.from(list.children).filter(el => el !== editorDraggingItem);
+        const firstRects = new Map(others.map(el => [el, el.getBoundingClientRect()]));
+
+        if (afterElement == null) list.appendChild(editorDraggingItem);
+        else list.insertBefore(editorDraggingItem, afterElement);
+
+        others.forEach(el => {
+            const firstRect = firstRects.get(el);
+            const lastRect = el.getBoundingClientRect();
+            const deltaY = firstRect.top - lastRect.top;
+            if (!deltaY) return;
+
+            el.style.transition = 'none';
+            el.style.transform = `translateY(${deltaY}px)`;
+            void el.offsetHeight;
+            el.style.transition = 'transform 0.15s ease';
+            el.style.transform = '';
+            el.addEventListener('transitionend', () => {
+                el.style.transition = '';
+                el.style.transform = '';
+            }, { once: true });
+        });
+    }
+
+    function onUp(ev) {
+        if (!editorDraggingItem) return;
+        editorDraggingItem.classList.remove('dragging');
+        editorDraggingItem = null;
+        document.body.classList.remove('editor-dragging');
+        handle.releasePointerCapture?.(ev.pointerId);
+        window.removeEventListener('pointermove', onMove);
+        window.removeEventListener('pointerup', onUp);
+
+        sidebarConfig.order = Array.from(list.children).map(child => child.dataset.id);
+        saveSidebarConfig(sidebarConfig);
+        applySidebarConfig();
+    }
+
+    window.addEventListener('pointermove', onMove);
+    window.addEventListener('pointerup', onUp);
+}
+
+function renderEditorList() {
+    const list = document.getElementById('editor-list');
+    if (!list) return;
+    list.innerHTML = '';
+
+    sidebarConfig.order.forEach(id => {
+        const sourceButton = document.getElementById(`t-${id}`);
+        if (!sourceButton) return;
+
+        const item = document.createElement('div');
+        item.className = 'editor-item';
+        item.dataset.id = id;
+        if (sidebarConfig.hidden.includes(id)) item.classList.add('hidden-tool');
+
+        const handle = document.createElement('div');
+        handle.className = 'editor-handle';
+        handle.innerHTML = '<svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor"><circle cx="2.5" cy="2.5" r="1.5"/><circle cx="7.5" cy="2.5" r="1.5"/><circle cx="2.5" cy="8" r="1.5"/><circle cx="7.5" cy="8" r="1.5"/><circle cx="2.5" cy="13.5" r="1.5"/><circle cx="7.5" cy="13.5" r="1.5"/></svg>';
+        handle.addEventListener('pointerdown', (e) => startEditorDrag(e, item));
+
+        const icon = document.createElement('div');
+        icon.className = 'editor-icon';
+        const clonedIcon = sourceButton.querySelector('i')?.cloneNode(true);
+        if (clonedIcon) {
+            clonedIcon.style.fontSize = '16px';
+            icon.appendChild(clonedIcon);
+        }
+
+        const label = document.createElement('div');
+        label.className = 'editor-label';
+        label.textContent = TAB_TITLES[id] || id;
+
+        const toggleLabel = document.createElement('label');
+        toggleLabel.className = 'switch editor-toggle';
+        const toggleInput = document.createElement('input');
+        toggleInput.type = 'checkbox';
+        toggleInput.checked = !sidebarConfig.hidden.includes(id);
+        const slider = document.createElement('span');
+        slider.className = 'slider round';
+        toggleLabel.append(toggleInput, slider);
+
+        toggleInput.addEventListener('change', () => {
+            const visibleCount = EDITABLE_SIDEBAR_IDS.length - sidebarConfig.hidden.length;
+            if (!toggleInput.checked && visibleCount <= 1) {
+                toggleInput.checked = true;
+                triggerWarn('sidebar-min-tools-active');
+                return;
+            }
+            if (toggleInput.checked && visibleCount >= MAX_VISIBLE_SIDEBAR_TOOLS) {
+                toggleInput.checked = false;
+                triggerWarn('sidebar-max-tools-active');
+                return;
+            }
+            sidebarConfig.hidden = toggleInput.checked
+                ? sidebarConfig.hidden.filter(hiddenId => hiddenId !== id)
+                : [...sidebarConfig.hidden, id];
+            item.classList.toggle('hidden-tool', !toggleInput.checked);
+            saveSidebarConfig(sidebarConfig);
+            applySidebarConfig();
+
+            if (!toggleInput.checked && currentPanelId === id) {
+                const fallback = sidebarConfig.order.find(fid => !sidebarConfig.hidden.includes(fid));
+                if (fallback) activatePanel(fallback);
+            }
+        });
+
+        item.append(handle, icon, label, toggleLabel);
+        list.appendChild(item);
+    });
+}
+
+document.getElementById('s-open-sidebar-editor')?.addEventListener('click', () => {
+    renderEditorList();
+    activatePanel('sidebar-editor');
+});
+
+document.getElementById('editor-back')?.addEventListener('click', () => {
+    activatePanel('settings');
+});
+
+document.getElementById('editor-reset')?.addEventListener('click', () => {
+    sidebarConfig = { order: [...EDITABLE_SIDEBAR_IDS], hidden: [...DEFAULT_HIDDEN_SIDEBAR_IDS] };
+    saveSidebarConfig(sidebarConfig);
+    applySidebarConfig();
+    renderEditorList();
+});
 
 sidebarButtons.forEach(button => {
     button.addEventListener('click', () => {
@@ -1849,8 +3563,12 @@ setupSettingsPanel().then((panelId) => {
 (function setupNativeTitlebar() {
     try {
         const saved = JSON.parse(localStorage.getItem('ftools:app-settings') || '{}');
-        document.body.setAttribute('theme', saved.appTheme || 'dark');
-        if (saved.highContrast) document.body.setAttribute('contrast', '');
+        const themeRow = document.getElementById('s-app-theme')?.closest('.settings-row');
+        const themeDefault = themeRow?.getAttribute('default')?.toLowerCase();
+        document.body.setAttribute('theme', saved.appTheme || themeDefault || 'dark');
+        const contrastRow = document.getElementById('s-high-contrast')?.closest('.settings-row');
+        const contrastDefault = contrastRow?.getAttribute('default')?.toLowerCase() === 'enabled';
+        if (saved.highContrast ?? contrastDefault) document.body.setAttribute('contrast', '');
     } catch (err) {
     }
 

@@ -1,302 +1,469 @@
 [theme="light"] {
-    --t-window-title: #3d3d3d;
-    --t-window-title-focus: #020202;
-    --t-window-title-button: #777;
-    --t-window-title-min-hover: #000;
+    --t-windowTitle: #3d3d3d;
+    --t-windowTitleFocus: #020202;
+    --t-windowTitleButton: #777;
+    --t-windowTitleMinimizeHover: #000;
 
-    --t-main-bg: #ececec;
-    --t-window-bg: #f1f1f1;
-    --t-box-bg: #efefef;
-    --t-dropdown: #efefef;
-    --t-dropdown-bg: #efefef;
-    --t-settings-dropdown-bg: #f0f0f0;
-    --t-settings-row-bg: #e5e5e5;
+    --t-mainBg: #ececec;
+    --t-windowBg: #f1f1f1;
+    --t-boxBg: #efefef;
+    --t-popupBg: #efefef;
+    --t-dropdownBg: #efefef;
+    --t-dropdownToggleBg: #efefef;
+    --t-settingsButtonToggleBg: #f0f0f0;
+    --t-settingsButtonToggleBgAlt: #f7f7f7;
+    --t-settingsRowBg: #e5e5e5;
+    --t-settingsRowBgAlt: #ececec;
 
-    --red: #ee4836;
-    --green: #03c93f;
-    --yellow: #ffa600;
+    --t-danger: #ee4836;
+    --t-success: #03c93f;
+    --t-warning: #ffa600;
 
-    --t-main-color: #1b1b1b;
-    --t-contrast-color: #000;
-    --t-placeholder-color: #2d2d2d;
+    --t-mainColor: #1b1b1b;
+    --t-contrastColor: #000;
+    --t-placeholderColor: #2d2d2d;
+    --t-warnCountColor: #fff;
 
     --t-accent: #005fb8;
-    --t-accent-hover: #0067c4;
+    --t-accentHover: #0067c4;
 
-    --t-window-border: #c4c4c4;
-    --t-box-border: 1px solid #cacaca;
-    --t-dropdown-border: #cacaca;
-    --t-settings-dropdown-border: #afafaf;
-    --t-checkbox-border: #61616190;
-    --t-swatch-border: #0000002e;
-    --t-slider-bg: #ededed;
-    --t-slider-border: #5a5a5a;
-    --t-slider-border-on: #005fb8;
+    --t-windowBorder: #c4c4c4;
+    --t-boxBorder: 1px solid #cacaca;
+    --t-dropdownToggleBorder: #cacaca;
+    --t-settingsButtonToggleBorder: #afafaf;
+    --t-settingsButtonToggleBorderAlt: #b4b4b4;
+    --t-checkboxBorder: #61616190;
+    --t-swatchBorder: #0000002e;
+    --t-sliderBorder: #5a5a5a;
+    --t-sliderBorderChecked: #005fb8;
 
-    --t-sidebar-hover: #f1f1f1;
-    --t-sidebar-active: #e0e0e0;
-    --t-input-active: #e2e2e2;
-    --t-dropdown-bg-hover: #e2e2e2;
-    --t-settings-dropdown-bg-hover: #fcfcfc;
-    --t-dropdown-hover: #00000017;
-    --t-option-hover: #f0f0f0;
-    --t-option-active: #e2e2e2;
-    --t-option-border-active: transparent;
-    --t-clear-hover: #e2e2e2;
+    --t-sidebarHover: #f1f1f1;
+    --t-sidebarActive: #e0e0e0;
+    --t-inputActive: #e2e2e2;
+    --t-dropdownToggleBgHover: #e2e2e2;
+    --t-settingsButtonToggleBgHover: #fcfcfc;
+    --t-settingsButtonToggleBgHoverAlt: #ffffff;
+    --t-dropdownOptionHover: #e4e4e4;
+    --t-dropdownOptionActive: #e2e2e2;
+    --t-dropdownOptionBorderActive: transparent;
+    --t-clearButtonHover: #e2e2e2;
 
-    --t-button-bg: #00000009;
-    --t-button-hover: #00000012;
-    --t-button-featured-bg: #005fb8;
-    --t-button-featured-hover: #0067c4;
-    --t-button-featured-color: #fff;
-    --t-tool-button-bg: transparent;
+    --t-buttonBg: #00000009;
+    --t-buttonHover: #00000012;
+    --t-buttonFeaturedBg: #005fb8;
+    --t-buttonFeaturedHover: #0067c4;
+    --t-buttonFeaturedColor: #fff;
+    --t-toolButtonBg: transparent;
 
-    --t-input-hover-shadow: #8a8a8a;
-    --t-input-focus-shadow: #005fb8;
+    --t-inputHoverShadow: #8a8a8a;
+    --t-inputFocusShadow: #005fb8;
 
-    --t-scrollbar: #86868680;
-    --t-scrollbar-hover: #70707080;
-    --t-checkbox-checked: #005fb8;
-    --t-checkbox-check: #fff;
-    --t-swatch-grad1: #00000026;
-    --t-swatch-grad2: #0000000d;
-    --t-loading-bar: #00000033;
-    --t-slider-knob: #5a5a5a;
-    --t-slider-knob-on: #fff;
+    --t-sliderTrackFill: #005fb8;
+    --t-sliderThumbBg: #005fb8;
+    --t-sliderThumbBorder: #fff;
+    --t-qrLoading: #005fb8;
 
-    --t-window-drag-border: transparent;
-    --t-dash-gap: transparent;
-    --t-checkbox-bg: transparent;
-    --t-swatch-default: transparent;
-    --t-colorpicker-frame-bg: transparent;
+    --t-scrollbarThumb: #86868680;
+    --t-scrollbarThumbHover: #70707080;
+
+    --t-acButtonStart1: #fff;
+    --t-acButtonStart2: #eee;
+    --t-acButtonStop1: #000;
+    --t-acButtonStop2: #222;
+    --t-acButtonStopBg: #ee4836;
+    --t-acButtonStopBgHover: #f64e3c;
+
+    --t-checkboxCheckedBg: #005fb8;
+    --t-checkboxCheckmarkColor: #fff;
+    --t-checkboxBg: transparent;
+
+    --t-sliderBg: #ededed;
+    --t-sliderKnob: #5a5a5a;
+    --t-sliderKnobChecked: #fff;
+
+    --t-swatchGradient1: #ffffff26;
+    --t-swatchGradient2: #ffffff0d;
+    --t-swatchDefaultColor: transparent;
+    --t-colorPickerFrameBg: transparent;
+
+    --t-loadingBarBg: #00000033;
+
+    --t-windowDragBorder: transparent;
+    --t-dashGap: transparent;
 }
 
 [theme="dark"] {
-    --t-window-title: #a2a2a2;
-    --t-window-title-focus: #fdfdfd;
-    --t-window-title-button: #888;
-    --t-window-title-min-hover: #fff;
+    --t-windowTitle: #a2a2a2;
+    --t-windowTitleFocus: #fdfdfd;
+    --t-windowTitleButton: #888;
+    --t-windowTitleMinimizeHover: #fff;
 
-    --t-main-bg: #202020ff;
-    --t-window-bg: #272727;
-    --t-box-bg: #333;
-    --t-dropdown: #2e2e2e;
-    --t-dropdown-bg: #333;
-    --t-settings-dropdown-bg: #3c3c3c;
-    --t-settings-row-bg: #333;
-    
-    --red: #e74c3c;
-    --green: #2ecc70;
-    --yellow: #ffb413;
+    --t-mainBg: #202020ff;
+    --t-windowBg: #272727;
+    --t-boxBg: #333;
+    --t-popupBg: #2e2e2e;
+    --t-dropdownBg: #2e2e2e;
+    --t-dropdownToggleBg: #333;
+    --t-settingsButtonToggleBg: #3c3c3c;
+    --t-settingsButtonToggleBgAlt: #353535;
+    --t-settingsRowBg: #333;
+    --t-settingsRowBgAlt: #202020ff;
 
-    --t-main-color: #eaeaea;
-    --t-contrast-color: #fff;
-    --t-placeholder-color: #cacaca;
+    --t-danger: #e74c3c;
+    --t-success: #2ecc70;
+    --t-warning: #ffb413;
+
+    --t-mainColor: #eaeaea;
+    --t-contrastColor: #fff;
+    --t-placeholderColor: #cacaca;
+    --t-warnCountColor: #000;
 
     --t-accent: #4cc2ff;
-    --t-accent-hover: #48b2e9;
+    --t-accentHover: #48b2e9;
 
-    --t-window-border: #1d1d1d;
-    --t-box-border: 1px solid transparent;
-    --t-dropdown-border: transparent;
-    --t-settings-dropdown-border: #3f3f3f;
-    --t-checkbox-border: #808080a0;
-    --t-swatch-border: #ffffff2e;
-    --t-slider-bg: #00000033;
-    --t-slider-border: #c7c7c7;
-    --t-slider-border-on: #4cc2ff;
+    --t-windowBorder: #1d1d1d;
+    --t-boxBorder: 1px solid transparent;
+    --t-dropdownToggleBorder: transparent;
+    --t-settingsButtonToggleBorder: #3f3f3f;
+    --t-settingsButtonToggleBorderAlt: #3a3a3a;
+    --t-checkboxBorder: #808080a0;
+    --t-swatchBorder: #ffffff2e;
+    --t-sliderBorder: #c7c7c7;
+    --t-sliderBorderChecked: #4cc2ff;
 
-    --t-sidebar-hover: #ffffff0f;
-    --t-sidebar-active: #ffffff0a;
-    --t-input-active: #ffffff0a;
-    --t-dropdown-bg-hover: #3c3c3c;
-    --t-settings-dropdown-bg-hover: #404040; 
-    --t-dropdown-hover: #ffffff1e;
-    --t-option-hover: #ffffff17;
-    --t-option-active: #ffffff0f;
-    --t-option-border-active: transparent;
-    --t-clear-hover: #474747;
+    --t-sidebarHover: #ffffff0f;
+    --t-sidebarActive: #ffffff0a;
+    --t-inputActive: #ffffff0a;
+    --t-dropdownToggleBgHover: #3c3c3c;
+    --t-settingsButtonToggleBgHover: #404040;
+    --t-settingsButtonToggleBgHoverAlt: #3b3b3b;
+    --t-dropdownOptionHover: #ffffff17;
+    --t-dropdownOptionActive: #ffffff0f;
+    --t-dropdownOptionBorderActive: transparent;
+    --t-clearButtonHover: #474747;
 
-    --t-button-bg: #ffffff10;
-    --t-button-hover: #ffffff17;
-    --t-button-featured-bg: #4cc2ff;
-    --t-button-featured-hover: #48b2e9;
-    --t-button-featured-color: #000;
-    --t-tool-button-bg: transparent;
+    --t-buttonBg: #ffffff10;
+    --t-buttonHover: #ffffff17;
+    --t-buttonFeaturedBg: #4cc2ff;
+    --t-buttonFeaturedHover: #48b2e9;
+    --t-buttonFeaturedColor: #000;
+    --t-toolButtonBg: transparent;
 
-    --t-input-hover-shadow: #a4a4a4;
-    --t-input-focus-shadow: #4cc2ff;
+    --t-inputHoverShadow: #a4a4a4;
+    --t-inputFocusShadow: #4cc2ff;
 
-    --t-scrollbar: #8a8a8a80;
-    --t-scrollbar-hover: #9e9e9e80;
-    --t-checkbox-checked: #3cafe9;
-    --t-checkbox-check: #000;
-    --t-swatch-grad1: #ffffff26;
-    --t-swatch-grad2: #ffffff0d;
-    --t-loading-bar: #00000033;
-    --t-slider-knob: #c7c7c7;
-    --t-slider-knob-on: #000;
+    --t-sliderTrackFill: #4cc2ff;
+    --t-sliderThumbBg: #4cc2ff;
+    --t-sliderThumbBorder: #434343;
+    --t-qrLoading: #4cc2ff;
 
-    --t-window-drag-border: transparent;
-    --t-dash-gap: transparent;
-    --t-checkbox-bg: transparent;
-    --t-swatch-default: transparent;
-    --t-colorpicker-frame-bg: transparent;
+    --t-scrollbarThumb: #8a8a8a80;
+    --t-scrollbarThumbHover: #9e9e9e80;
+
+    --t-acButtonStart1: #000;
+    --t-acButtonStart2: #222;
+    --t-acButtonStop1: #fff;
+    --t-acButtonStop2: #eee;
+    --t-acButtonStopBg: #e74c3c;
+    --t-acButtonStopBgHover: #e5402f;
+
+    --t-checkboxCheckedBg: #3cafe9;
+    --t-checkboxCheckmarkColor: #000;
+    --t-checkboxBg: transparent;
+
+    --t-sliderBg: #00000033;
+    --t-sliderKnob: #c7c7c7;
+    --t-sliderKnobChecked: #000;
+
+    --t-swatchGradient1: #ffffff26;
+    --t-swatchGradient2: #ffffff0d;
+    --t-swatchDefaultColor: transparent;
+    --t-colorPickerFrameBg: transparent;
+
+    --t-loadingBarBg: #00000033;
+
+    --t-windowDragBorder: transparent;
+    --t-dashGap: transparent;
 }
 
 [theme="transparent"] {
-    --t-window-title: #a2a2a2;
-    --t-window-title-focus: #fdfdfd;
-    --t-window-title-button: #999;
-    --t-window-title-min-hover: #fff;
+    --t-windowTitle: #a2a2a2;
+    --t-windowTitleFocus: #fdfdfd;
+    --t-windowTitleButton: #999;
+    --t-windowTitleMinimizeHover: #fff;
 
-    --red: #e74c3c;
-    --green: #2ecc70;
-    --yellow: #ffb413;
+    --t-mainBg: #0000aa05;
+    --t-windowBg: #cccccc07;
+    --t-boxBg: #cbcbcb0a;
+    --t-popupBg: #3e4144;
+    --t-dropdownBg: #3e4144;
+    --t-dropdownToggleBg: #cbcbcb0a;
+    --t-settingsButtonToggleBg: #a3a3a30f;
+    --t-settingsButtonToggleBgAlt: #aaaaaa0f;
+    --t-settingsRowBg: #cbcbcb0a;
+    --t-settingsRowBgAlt: transparent;
+
+    --t-danger: #e74c3c;
+    --t-success: #2ecc70;
+    --t-warning: #ffb413;
+
+    --t-mainColor: #eee;
+    --t-contrastColor: #fff;
+    --t-placeholderColor: #d0d0d0;
+    --t-warnCountColor: #000;
+
+    --t-accent: #4cc2ff;
+    --t-accentHover: #48b2e9;
+
+    --t-windowBorder: #bbbbbb26;
+    --t-boxBorder: 1px solid transparent;
+    --t-dropdownToggleBorder: transparent;
+    --t-settingsButtonToggleBorder: transparent;
+    --t-settingsButtonToggleBorderAlt: transparent;
+    --t-checkboxBorder: #ececec70;
+    --t-swatchBorder: #6d686eaa;
+    --t-sliderBorder: #ecececa0;
+    --t-sliderBorderChecked: #4cc2ff;
+
+    --t-sidebarHover: #6b6a6b16;
+    --t-sidebarActive: #6b6a6b24;
+    --t-inputActive: #6b6a6b30;
+    --t-dropdownToggleBgHover: #6d686e30;
+    --t-settingsButtonToggleBgHover: #c3c3c312;
+    --t-settingsButtonToggleBgHoverAlt: #c8c8c812;
+    --t-dropdownOptionHover: #abaaab15;
+    --t-dropdownOptionActive: #abaaab20;
+    --t-dropdownOptionBorderActive: transparent;
+    --t-clearButtonHover: #abaaab20;
+
+    --t-buttonBg: #6d686e20;
+    --t-buttonHover: #6d686e14;
+    --t-buttonFeaturedBg: #4cc2ff;
+    --t-buttonFeaturedHover: #48b2e9;
+    --t-buttonFeaturedColor: #000;
+    --t-toolButtonBg: transparent;
+
+    --t-inputHoverShadow: #d4d4d4;
+    --t-inputFocusShadow: #4cc2ff;
+
+    --t-sliderTrackFill: #4cc2ff;
+    --t-sliderThumbBg: #4cc2ff;
+    --t-sliderThumbBorder: #333538;
+    --t-qrLoading: #4cc2ff;
+
+    --t-scrollbarThumb: #ffffff32;
+    --t-scrollbarThumbHover: #ffffff42;
+
+    --t-acButtonStart1: #000;
+    --t-acButtonStart2: #222;
+    --t-acButtonStop1: #fff;
+    --t-acButtonStop2: #eee;
+    --t-acButtonStopBg: #e74c3c;
+    --t-acButtonStopBgHover: #e5402f;
+
+    --t-checkboxCheckedBg: #3cafe9;
+    --t-checkboxCheckmarkColor: #000;
+    --t-checkboxBg: transparent;
+
+    --t-sliderBg: #0c070d20;
+    --t-sliderKnob: #ecececa0;
+    --t-sliderKnobChecked: #000;
+
+    --t-swatchGradient1: #ffffff26;
+    --t-swatchGradient2: #ffffff0d;
+    --t-swatchDefaultColor: #27e78e;
+    --t-colorPickerFrameBg: transparent;
+
+    --t-loadingBarBg: #95909040;
+
+    --t-windowDragBorder: transparent;
+    --t-dashGap: transparent;
 }
 
 [theme="light"][contrast] {
-    --t-window-title: #000;
-    --t-window-title-focus: #000;
-    --t-window-title-button: #000;
-    --t-window-title-min-hover: #000;
+    --t-windowTitle: #000;
+    --t-windowTitleFocus: #000;
+    --t-windowTitleButton: #000;
+    --t-windowTitleMinimizeHover: #000;
 
-    --t-main-bg: #fff;
-    --t-window-bg: #fff;
-    --t-box-bg: #fff;
-    --t-dropdown: #fff;
-    --t-dropdown-bg: #fff;
-    --t-settings-dropdown-bg: #fff;
-    --t-settings-row-bg: #fff;
+    --t-mainBg: #fff;
+    --t-windowBg: #fff;
+    --t-boxBg: #fff;
+    --t-popupBg: #fff;
+    --t-dropdownBg: #fff;
+    --t-dropdownToggleBg: #fff;
+    --t-settingsButtonToggleBg: #fff;
+    --t-settingsButtonToggleBgAlt: #fff;
+    --t-settingsRowBg: #fff;
+    --t-settingsRowBgAlt: #fff;
 
-    --red: #000;
-    --green: #000;
-    --yellow: #000;
+    --t-danger: #000;
+    --t-success: #000;
+    --t-warning: #000;
 
-    --t-main-color: #000;
-    --t-contrast-color: #000;
-    --t-placeholder-color: #000;
+    --t-mainColor: #000;
+    --t-contrastColor: #000;
+    --t-placeholderColor: #000;
+    --t-warnCountColor: #000;
 
     --t-accent: #fff;
-    --t-accent-hover: #fff;
+    --t-accentHover: #fff;
 
-    --t-window-border: #000;
-    --t-box-border: 1px solid #000;
-    --t-dropdown-border: #000;
-    --t-settings-dropdown-border: #000;
-    --t-checkbox-border: #000;
-    --t-swatch-border: #000;
-    --t-slider-bg: #fff;
-    --t-slider-border: #000;
-    --t-slider-border-on: #000;
+    --t-windowBorder: #000;
+    --t-boxBorder: 1px solid #000;
+    --t-dropdownToggleBorder: #000;
+    --t-settingsButtonToggleBorder: #000;
+    --t-settingsButtonToggleBorderAlt: #000;
+    --t-checkboxBorder: #000;
+    --t-swatchBorder: #000;
+    --t-sliderBorder: #000;
+    --t-sliderBorderChecked: #000;
 
-    --t-sidebar-hover: #fff;
-    --t-sidebar-active: #fff;
-    --t-input-active: #fff;
-    --t-dropdown-bg-hover: #fff;
-    --t-settings-dropdown-bg-hover: #fff;
-    --t-dropdown-hover: #fff;
-    --t-option-hover: #fff;
-    --t-option-active: #fff;
-    --t-option-border-active: #000;
-    --t-clear-hover: #fff;
+    --t-sidebarHover: #fff;
+    --t-sidebarActive: #fff;
+    --t-inputActive: #fff;
+    --t-dropdownToggleBgHover: #fff;
+    --t-settingsButtonToggleBgHover: #fff;
+    --t-settingsButtonToggleBgHoverAlt: #fff;
+    --t-dropdownOptionHover: #fff;
+    --t-dropdownOptionActive: #fff;
+    --t-dropdownOptionBorderActive: #000;
+    --t-clearButtonHover: #fff;
 
-    --t-button-bg: #fff;
-    --t-button-hover: #fff;
-    --t-button-featured-bg: #fff;
-    --t-button-featured-hover: #fff;
-    --t-button-featured-color: #000;
-    --t-tool-button-bg: #fff;
+    --t-buttonBg: #fff;
+    --t-buttonHover: #fff;
+    --t-buttonFeaturedBg: #000;
+    --t-buttonFeaturedHover: #000;
+    --t-buttonFeaturedColor: #fff;
+    --t-toolButtonBg: #fff;
 
-    --t-input-hover-shadow: #fff;
-    --t-input-focus-shadow: #fff;
+    --t-inputHoverShadow: #fff;
+    --t-inputFocusShadow: #fff;
 
-    --t-scrollbar: #000;
-    --t-scrollbar-hover: #000;
-    --t-checkbox-checked: #000;
-    --t-checkbox-check: #fff;
-    --t-swatch-grad1: #fff;
-    --t-swatch-grad2: #fff;
-    --t-loading-bar: #fff;
-    --t-slider-knob: #000;
-    --t-slider-knob-on: #000;
+    --t-sliderTrackFill: #000;
+    --t-sliderThumbBg: #000;
+    --t-sliderThumbBorder: #fff;
 
-    --t-window-drag-border: #fff;
-    --t-dash-gap: #fff;
-    --t-checkbox-bg: #fff;
-    --t-swatch-default: #fff;
-    --t-colorpicker-frame-bg: #fff;
+    --t-scrollbarThumb: #000;
+    --t-scrollbarThumbHover: #000;
+
+    --t-acButtonStart1: #fff;
+    --t-acButtonStart2: #fff;
+    --t-acButtonStop1: #000;
+    --t-acButtonStop2: #000;
+    --t-acButtonStopBg: #fff;
+    --t-acButtonStopBgHover: #fff;
+
+    --t-checkboxCheckedBg: #000;
+    --t-checkboxCheckmarkColor: #fff;
+    --t-checkboxBg: #fff;
+
+    --t-sliderBg: #fff;
+    --t-sliderKnob: #000;
+    --t-sliderKnobChecked: #000;
+    --t-qrLoading: #000;
+
+    --t-swatchGradient1: #ffffff26;
+    --t-swatchGradient2: #ffffff0d;
+    --t-swatchDefaultColor: #fff;
+    --t-colorPickerFrameBg: #fff;
+
+    --t-loadingBarBg: #fff;
+
+    --t-windowDragBorder: #fff;
+    --t-dashGap: #fff;
 }
 
 [theme="dark"][contrast] {
-    --t-window-title: #fff;
-    --t-window-title-focus: #fff;
-    --t-window-title-button: #fff;
-    --t-window-title-min-hover: #fff;
+    --t-windowTitle: #fff;
+    --t-windowTitleFocus: #fff;
+    --t-windowTitleButton: #fff;
+    --t-windowTitleMinimizeHover: #fff;
 
-    --t-main-bg: #000;
-    --t-window-bg: #000;
-    --t-box-bg: #000;
-    --t-dropdown: #000;
-    --t-dropdown-bg: #000;
-    --t-settings-dropdown-bg: #000;
-    --t-settings-row-bg: #000;
+    --t-mainBg: #000;
+    --t-windowBg: #000;
+    --t-boxBg: #000;
+    --t-popupBg: #000;
+    --t-dropdownBg: #000;
+    --t-dropdownToggleBg: #000;
+    --t-settingsButtonToggleBg: #000;
+    --t-settingsButtonToggleBgAlt: #000;
+    --t-settingsRowBg: #000;
+    --t-settingsRowBgAlt: #000;
 
-    --red: #fff;
-    --green: #fff;
-    --yellow: #fff;
+    --t-danger: #fff;
+    --t-success: #fff;
+    --t-warning: #fff;
 
-    --t-main-color: #fff;
-    --t-contrast-color: #fff;
-    --t-placeholder-color: #fff;
+    --t-mainColor: #fff;
+    --t-contrastColor: #fff;
+    --t-placeholderColor: #fff;
+    --t-warnCountColor: #fff;
 
     --t-accent: #000;
-    --t-accent-hover: #000;
+    --t-accentHover: #000;
 
-    --t-window-border: #fff;
-    --t-box-border: 1px solid #fff;
-    --t-dropdown-border: #fff;
-    --t-settings-dropdown-border: #fff;
-    --t-checkbox-border: #fff;
-    --t-swatch-border: #fff;
-    --t-slider-bg: #000;
-    --t-slider-border: #fff;
-    --t-slider-border-on: #fff;
+    --t-windowBorder: #fff;
+    --t-boxBorder: 1px solid #fff;
+    --t-dropdownToggleBorder: #fff;
+    --t-settingsButtonToggleBorder: #fff;
+    --t-settingsButtonToggleBorderAlt: #fff;
+    --t-checkboxBorder: #fff;
+    --t-swatchBorder: #fff;
+    --t-sliderBorder: #fff;
+    --t-sliderBorderChecked: #fff;
 
-    --t-sidebar-hover: #000;
-    --t-sidebar-active: #000;
-    --t-input-active: #000;
-    --t-dropdown-bg-hover: #000;
-    --t-settings-dropdown-bg-hover: #000;
-    --t-dropdown-hover: #000;
-    --t-option-hover: #000;
-    --t-option-active: #000;
-    --t-option-border-active: #fff;
-    --t-clear-hover: #000;
+    --t-sidebarHover: #000;
+    --t-sidebarActive: #000;
+    --t-inputActive: #000;
+    --t-dropdownToggleBgHover: #000;
+    --t-settingsButtonToggleBgHover: #000;
+    --t-settingsButtonToggleBgHoverAlt: #000;
+    --t-dropdownOptionHover: #000;
+    --t-dropdownOptionActive: #000;
+    --t-dropdownOptionBorderActive: #fff;
+    --t-clearButtonHover: #000;
 
-    --t-button-bg: #000;
-    --t-button-hover: #000;
-    --t-button-featured-bg: #000;
-    --t-button-featured-hover: #000;
-    --t-button-featured-color: #fff;
-    --t-tool-button-bg: #000;
+    --t-buttonBg: #000;
+    --t-buttonHover: #000;
+    --t-buttonFeaturedBg: #fff;
+    --t-buttonFeaturedHover: #fff;
+    --t-buttonFeaturedColor: #000;
+    --t-toolButtonBg: #000;
 
-    --t-input-hover-shadow: #000;
-    --t-input-focus-shadow: #000;
+    --t-inputHoverShadow: #000;
+    --t-inputFocusShadow: #000;
 
-    --t-scrollbar: #fff;
-    --t-scrollbar-hover: #fff;
-    --t-checkbox-checked: #fff;
-    --t-checkbox-check: #000;
-    --t-swatch-grad1: #000;
-    --t-swatch-grad2: #000;
-    --t-loading-bar: #000;
-    --t-slider-knob: #fff;
-    --t-slider-knob-on: #fff;
+    --t-sliderTrackFill: #fff;
+    --t-sliderThumbBg: #fff;
+    --t-sliderThumbBorder: #000;
+    --t-qrLoading: #000;
 
-    --t-window-drag-border: #000;
-    --t-dash-gap: #000;
-    --t-checkbox-bg: #000;
-    --t-swatch-default: #000;
-    --t-colorpicker-frame-bg: #000;
+    --t-scrollbarThumb: #fff;
+    --t-scrollbarThumbHover: #fff;
+
+    --t-acButtonStart1: #000;
+    --t-acButtonStart2: #000;
+    --t-acButtonStop1: #fff;
+    --t-acButtonStop2: #fff;
+    --t-acButtonStopBg: #000;
+    --t-acButtonStopBgHover: #000;
+
+    --t-checkboxCheckedBg: #fff;
+    --t-checkboxCheckmarkColor: #000;
+    --t-checkboxBg: #000;
+
+    --t-sliderBg: #000;
+    --t-sliderKnob: #fff;
+    --t-sliderKnobChecked: #fff;
+
+    --t-swatchGradient1: #ffffff26;
+    --t-swatchGradient2: #ffffff0d;
+    --t-swatchDefaultColor: #000;
+    --t-colorPickerFrameBg: #000;
+
+    --t-loadingBarBg: #000;
+
+    --t-windowDragBorder: #000;
+    --t-dashGap: #000;
 }

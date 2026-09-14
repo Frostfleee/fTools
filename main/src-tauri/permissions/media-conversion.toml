@@ -2,5 +2,5 @@
 
 [[permission]]
 identifier = "allow-app-commands"
-description = "Allows this app's own file-conversion commands"
+description = "Allows this app's own file-conversion and blur-patch commands"
 commands.allow = ["convert_image", "convert_audio", "convert_video"]

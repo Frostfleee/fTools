@@ -1,42 +1,46 @@
 {
-  "$schema": "https://schema.tauri.app/config/2",
+   "$schema": "https://schema.tauri.app/config/2",
 
-  "productName": "fTools",
-  "version": "0.9.4",
-  "identifier": "com.ftools.frostfleee",
+   "productName": "fTools",
+   "version": "0.9.5",
+   "identifier": "io.ftools",
 
-  "build": {
-    "beforeDevCommand": "",
-    "beforeBuildCommand": "",
-    "frontendDist": "../dist"
-  },
+   "build": {
+      "beforeDevCommand": "",
+      "beforeBuildCommand": "",
+      "frontendDist": "../dist"
+   },
 
-  "app": {
-    "withGlobalTauri": true,
-    "windows": [
-      {
-        "label": "main",
-        "title": "fTools",
-        "width": 540,
-        "height": 247,
-        "resizable": false,
-        "maximizable": false,
-        "center": true,
-        "decorations": false,
-        "transparent": true
+   "app": {
+      "withGlobalTauri": true,
+      "windows": [
+         {
+            "label": "main",
+            "title": "fTools",
+            "width": 540,
+            "height": 247,
+            "resizable": false,
+            "maximizable": false,
+            "center": true,
+            "decorations": false,
+            "transparent": true
+         }
+      ],
+
+      "security": {
+         "csp": null,
+           "assetProtocol": {
+               "enable": true,
+               "scope": ["**"]
+         }
       }
-    ],
+   },
 
-    "security": {
-      "csp": null
-    }
-  },
-
-  "bundle": {
-    "active": true,
-    "targets": ["nsis"],
-    "icon": [
-      "icons/icon.ico"
-    ]
-  }
+   "bundle": {
+      "active": true,
+      "targets": ["nsis"],
+      "icon": [
+         "icons/icon.ico"
+      ]
+   }
 }
