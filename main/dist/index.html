@@ -211,21 +211,21 @@
         <div class="tab" id="autoclicker">
             <div class="autoclicker">
                 <div class="autoclicker-row" id="ac-click-type-row">
-                    <div class="autoclicker-name"><i class="autoclicker-icon fa-solid fa-hand-pointer"></i><span>Click type</span></div>
+                    <div class="autoclicker-name"><i class="autoclicker-icon codicon codicon-cursor"></i><span>Click type</span></div>
                     <div class="ac-mode-switch" id="ac-mode-switch" role="tablist">
                         <button type="button" class="ac-mode-option selected" id="ac-mode-mouse" data-mode="mouse" role="tab" aria-selected="true">
-                            <i class="fa-solid fa-computer-mouse"></i>
+                            <i class="icon-mouse"></i>
                         </button>
                         <button type="button" class="ac-mode-option" id="ac-mode-keyboard" data-mode="keyboard" role="tab" aria-selected="false">
-                            <i class="fa-solid fa-keyboard"></i>
+                            <i class="codicon codicon-keyboard"></i>
                         </button>
                         <button type="button" class="ac-mode-option" id="ac-mode-multiple" data-mode="multiple" role="tab" aria-selected="false">
-                            <i class="fa-solid fa-list-ul"></i>
+                            <i class="codicon codicon-list-unordered"></i>
                         </button>
                     </div>
                 </div>
                 <div class="autoclicker-row linked" id="ac-mouse-button-row">
-                    <div class="autoclicker-name"><i class="autoclicker-icon fa-solid fa-computer-mouse"></i><span>Mouse</span></div>
+                    <div class="autoclicker-name"><i class="autoclicker-icon icon-mouse"></i><span>Mouse</span></div>
                     <select class="dropdown" id="ac-button">
                         <option value="left">Left</option>
                         <option value="right">Right</option>
@@ -233,13 +233,13 @@
                     </select>
                 </div>
                 <div class="autoclicker-row linked hidden" id="ac-click-key-row">
-                    <div class="autoclicker-name"><i class="autoclicker-icon fa-solid fa-keyboard"></i><span>Keyboard</span></div>
+                    <div class="autoclicker-name"><i class="autoclicker-icon codicon codicon-keyboard"></i><span>Keyboard</span></div>
                     <button type="button" class="ac-key-detect" id="ac-click-key">
                         <span class="ac-key-detect-label" id="ac-click-key-label">None</span>
                     </button>
                 </div>
                 <div class="autoclicker-row linked hidden" id="ac-action-list-row">
-                    <div class="autoclicker-name"><i class="autoclicker-icon fa-solid fa-list"></i><span>Multiple inputs</span></div>
+                    <div class="autoclicker-name"><i class="autoclicker-icon codicon codicon-list-unordered"></i><span>Multiple inputs</span></div>
                     <select class="ac-action-type" id="ac-action-type">
                         <option value="keyboard">Keyboard</option>
                         <option value="mouse">Mouse</option>
@@ -253,28 +253,28 @@
                     <div class="ac-action-list" id="ac-action-list"></div>
                 </div>
                 <div class="autoclicker-row" id="ac-click-speed-row">
-                    <div class="autoclicker-name"><i class="autoclicker-icon fa-solid fa-gauge-high"></i><span>Click speed</span></div>
+                    <div class="autoclicker-name"><i class="autoclicker-icon codicon codicon-dashboard"></i><span>Click speed</span></div>
                     <div class="autoclicker-input-wrap">
                         <input type="number" class="autoclicker-input" id="ac-cps" value="10" min="1" max="1000"/>
                         <span class="autoclicker-input-suffix">CPS</span>
                     </div>
                 </div>
                 <div class="autoclicker-row" id="ac-hold-time-row">
-                    <div class="autoclicker-name"><i class="autoclicker-icon fa-solid fa-stopwatch"></i><span>Hold time</span></div>
+                    <div class="autoclicker-name"><i class="autoclicker-icon icon-hold-time"></i><span>Hold time</span></div>
                     <div class="autoclicker-input-wrap">
                         <input type="number" class="autoclicker-input" id="ac-hold-time" value="500" min="1" max="60000"/>
                         <span class="autoclicker-input-suffix">ms</span>
                     </div>
                 </div>
                 <div class="autoclicker-row" id="ac-toggle-key-row">
-                    <div class="autoclicker-name"><i class="autoclicker-icon fa-solid fa-keyboard"></i><span>Toggle key</span></div>
+                    <div class="autoclicker-name"><i class="autoclicker-icon codicon codicon-keyboard"></i><span>Toggle key</span></div>
                     <button type="button" class="ac-key-detect" id="ac-toggle-key">
                         <span class="ac-key-detect-label" id="ac-toggle-key-label">None</span>
                     </button>
                 </div>
             </div>
             <button class="button featured" id="ac-start">
-                <i class="fa-solid fa-play"></i>
+                <i class="icon-play"></i>
                 <span id="ac-start-label">Start</span>
                 <span class="autoclicker-hotkey" id="ac-hotkey-hint"></span>
             </button>
@@ -316,11 +316,11 @@
         <div class="tab" id="settings">
             <div class="settings">
                 <div class="settings-row">
-                    <div class="settings-name"><i class="settings-icon fa-solid fa-pen-to-square"></i><span>Sidebar Editor</span></div>
+                    <div class="settings-name"><i class="settings-icon codicon codicon-edit"></i><span>Sidebar Editor</span></div>
                     <button class="button" id="s-open-sidebar-editor"><span>Open</span></button>
                 </div>
                 <div class="settings-row" default="Light">
-                    <div class="settings-name"><i class="settings-icon fa-solid fa-brush"></i><span>App theme</span></div>
+                    <div class="settings-name"><i class="settings-icon codicon codicon-paintcan"></i><span>App theme</span></div>
                     <select class="dropdown" id="s-app-theme">
                         <option value="light">Light</option>
                         <option value="dark">Dark</option>
@@ -328,27 +328,27 @@
                     </select>
                 </div>
                 <div class="settings-row" default="disabled">
-                    <div class="settings-name"><i class="settings-icon fa-solid fa-circle-half-stroke"></i><span>High Contrast</span></div>
+                    <div class="settings-name"><i class="settings-icon codicon codicon-color-mode"></i><span>High Contrast</span></div>
                     <label class="switch"><input type="checkbox" id="s-high-contrast"><span class="slider round"></span></label>
                 </div>
                 <div class="settings-row" default="disabled">
-                    <div class="settings-name"><i class="settings-icon fa-solid fa-thumbtack"></i><span>Always on top</span></div>
+                    <div class="settings-name"><i class="settings-icon codicon codicon-pinned"></i><span>Always on top</span></div>
                     <label class="switch"><input type="checkbox" id="s-always-on-top"><span class="slider round"></span></label>
                 </div>
                 <div class="settings-row" default="disabled">
-                    <div class="settings-name"><i class="settings-icon fa-solid fa-clock-rotate-left"></i><span>Remember last used tool</span></div>
+                    <div class="settings-name"><i class="settings-icon codicon codicon-history"></i><span>Remember last used tool</span></div>
                     <label class="switch"><input type="checkbox" id="s-remember-tool"><span class="slider round"></span></label>
                 </div>
                 <div class="settings-row" default="disabled">
-                    <div class="settings-name"><i class="settings-icon fa-solid fa-eye-low-vision"></i><span>Close on focus loss</span></div>
+                    <div class="settings-name"><i class="settings-icon codicon codicon-eye-closed"></i><span>Close on focus loss</span></div>
                     <label class="switch"><input type="checkbox" id="s-close-on-focus-loss"><span class="slider round"></span></label>
                 </div>
                 <div class="settings-row" default="disabled">
-                    <div class="settings-name"><i class="settings-icon fa-solid fa-wrench"></i><span>Hide tool name in titlebar</span></div>
+                    <div class="settings-name"><i class="settings-icon codicon codicon-wrench"></i><span>Hide tool name in titlebar</span></div>
                     <label class="switch"><input type="checkbox" id="s-hide-tool-in-titlebar"><span class="slider round"></span></label>
                 </div>
                 <div class="settings-row" default="disabled">
-                    <div class="settings-name"><i class="settings-icon fa-solid fa-bell-slash"></i><span>Hide warn notifications</span></div>
+                    <div class="settings-name"><i class="settings-icon codicon codicon-bell-slash"></i><span>Hide warn notifications</span></div>
                     <label class="switch"><input type="checkbox" id="s-hide-warnings"><span class="slider round"></span></label>
                 </div>
             </div>
@@ -389,6 +389,7 @@
                 <a id="ac-toggle-action-key-conflict" class="warning">Toggle key cannot be the same as the keyboard action key!</a>
                 <a id="ac-no-key-set" class="warning">Set a key before starting!</a>
                 <a id="ac-no-actions" class="warning">Add at least one action before starting!</a>
+                <a id="ac-close-on-focus-loss" class="warning">Disable "Close on focus loss" setting before starting!</a>
             </div>
         </div>
 
@@ -399,7 +400,7 @@
             </div>
         </div>
 
-        <script src="qrcode/qrcode-generator.min.js"></script>
+        <script src="qrcode/generator.js"></script>
         <script src="app.js"></script>
 
     </body>

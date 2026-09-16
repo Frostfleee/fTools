@@ -1,4 +1,5 @@
 const appLaunchTime = Date.now();
+let currentPanelId = 'fontstyler';
 
 const transforms = {
     option1: (text) => transformMap(text, 'abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ', '𝑎𝑏𝑐𝑑𝑒𝑓𝑔ℎ𝑖𝑗𝑘𝑙𝑚𝑛𝑜𝑝𝑞𝑟𝑠𝑡𝑢𝑣𝑤𝑥𝑦𝑧𝐴𝐵𝐶𝐷𝐸𝐹𝐺𝐻𝐼𝐽𝐾𝐿𝑀𝑁𝑂𝑃𝑄𝑅𝑆𝑇𝑈𝑉𝑊𝑋𝑌𝑍'),
@@ -1365,7 +1366,7 @@ function setupQrConverter() {
     const panel = document.getElementById('qrcodeconverter');
     if (!panel) return;
     if (typeof qrcode !== 'function') {
-        console.error('QR library not loaded; make sure qrcode-generator_min.js is included before app.js.');
+        console.error('QR library not loaded; make sure qrcode/generator.js is included before app.js.');
         return;
     }
 
@@ -2482,7 +2483,7 @@ function renderAcActionList() {
         const item = document.createElement('div');
         item.className = 'ac-action-item';
         const icon = document.createElement('i');
-        icon.className = action.type === 'keyboard' ? 'fa-solid fa-keyboard' : 'fa-solid fa-computer-mouse';
+        icon.className = action.type === 'keyboard' ? 'codicon codicon-keyboard' : 'icon-mouse';
         const type = document.createElement('span');
         type.className = 'ac-action-type';
         type.textContent = action.type === 'keyboard' ? 'Keyboard' : 'Mouse';
@@ -2574,6 +2575,125 @@ function getKeyDisplayName(e) {
     return key.length === 1 ? key.toUpperCase() : key;
 }
 
+// Converts a toggle-key display string (e.g. "Ctrl + Shift + F6") into a
+// Tauri global-shortcut accelerator string (e.g. "Ctrl+Shift+F6"), so the
+// same key can be registered as a real OS-level hotkey and still work when
+// fTools isn't the focused window. Returns null when the combo can't be
+// expressed as a global hotkey (e.g. a modifier held alone with no key), in
+// which case the toggle still works normally whenever fTools is focused.
+const AC_ACCELERATOR_MODIFIER_MAP = { Ctrl: 'Ctrl', Shift: 'Shift', Alt: 'Alt' };
+const AC_ACCELERATOR_KEY_MAP = {
+    'Space': 'Space',
+    'Del': 'Delete',
+    'Backspace': 'Backspace',
+    'Enter': 'Enter',
+    'Tab': 'Tab',
+    'Caps Lock': 'CapsLock',
+    'PgUp': 'PageUp',
+    'PgDn': 'PageDown',
+    'Home': 'Home',
+    'End': 'End',
+    'Insert': 'Insert',
+    'Up Arrow': 'ArrowUp',
+    'Down Arrow': 'ArrowDown',
+    'Left Arrow': 'ArrowLeft',
+    'Right Arrow': 'ArrowRight',
+    'Comma': 'Comma',
+    'Period': 'Period',
+    'Semicolon': 'Semicolon',
+    'Quote': 'Quote',
+    'Slash': 'Slash',
+    'Backslash': 'Backslash',
+    '[': 'BracketLeft',
+    ']': 'BracketRight',
+    '-': 'Minus',
+    '=': 'Equal',
+    '`': 'Backquote',
+};
+
+function acKeyDisplayToAcceleratorKey(display) {
+    if (/^F([1-9]|1[0-9]|2[0-4])$/.test(display)) return display;
+    if (/^[A-Z]$/.test(display)) return display;
+    if (/^[0-9]$/.test(display)) return display;
+    return AC_ACCELERATOR_KEY_MAP[display] || null;
+}
+
+function acDisplayToAccelerator(displayValue) {
+    if (!displayValue) return null;
+    const parts = displayValue.split(' + ');
+    const mainDisplay = parts[parts.length - 1];
+    if (AC_ACCELERATOR_MODIFIER_MAP[mainDisplay]) return null;
+    const acceleratorKey = acKeyDisplayToAcceleratorKey(mainDisplay);
+    if (!acceleratorKey) return null;
+    const modifierKeys = parts.slice(0, -1).map((p) => AC_ACCELERATOR_MODIFIER_MAP[p]).filter(Boolean);
+    return [...modifierKeys, acceleratorKey].join('+');
+}
+
+const acIsTauriEnv = '__TAURI_INTERNALS__' in window;
+let acRegisteredAccelerator = null;
+// Declared here (rather than down by the rest of the click-loop state)
+// because acShouldHotkeyBeGlobal reads it, and that can run synchronously
+// via setAcToggleKey(null) below before this script reaches that section.
+let acRunning = false;
+
+// Registers acToggleKeyValue as a real OS-level hotkey via the
+// global-shortcut plugin, so it fires even when fTools isn't focused.
+// Always unregisters whatever was registered before, so changing the
+// toggle key (or clearing it) never leaves a stale hotkey behind.
+//
+// A registered global hotkey fully swallows that key system-wide, even
+// when the person is just trying to type it into an unrelated field, so
+// this only actually registers it while acShouldHotkeyBeGlobal() says it's
+// needed (see that function for exactly when). The rest of the time the
+// key is left completely unregistered, so it behaves like any other key.
+async function syncAcGlobalHotkey() {
+    if (!acIsTauriEnv || !window.__TAURI__?.globalShortcut) return;
+    const { register, unregister } = window.__TAURI__.globalShortcut;
+    if (acRegisteredAccelerator) {
+        try {
+            await unregister(acRegisteredAccelerator);
+        } catch (err) {
+            console.error('Could not unregister the previous autoclicker hotkey:', err);
+        }
+        acRegisteredAccelerator = null;
+    }
+    if (!acShouldHotkeyBeGlobal()) return;
+    const accelerator = acDisplayToAccelerator(acToggleKeyValue);
+    if (!accelerator) return;
+    const handleHotkeyEvent = (event) => {
+        if (event.state !== 'Pressed') return;
+        if (acListeningForKey) return;
+        acHandleHotkeyToggle();
+    };
+    try {
+        await register(accelerator, handleHotkeyEvent);
+        acRegisteredAccelerator = accelerator;
+    } catch (err) {
+        // A frontend-only reload (dev hot reload) can leave this exact
+        // accelerator registered on the Rust side from the previous session,
+        // even though acRegisteredAccelerator here starts out null and has
+        // nothing to unregister above. Clear it and retry once before
+        // giving up.
+        try {
+            await unregister(accelerator);
+            await register(accelerator, handleHotkeyEvent);
+            acRegisteredAccelerator = accelerator;
+        } catch (retryErr) {
+            console.error('Could not register the autoclicker hotkey globally:', retryErr);
+        }
+    }
+}
+
+// The toggle key only needs OS-wide reach in two cases: the clicker is
+// already running (so Stop always works, from any tab or app), or the
+// person is sitting on the Auto Clicker tab right now (so Start works
+// immediately). Otherwise (idle and looking at something else entirely)
+// there's nothing for the hotkey to do, so it's left unregistered rather
+// than silently eating that key everywhere in the OS.
+function acShouldHotkeyBeGlobal() {
+    return acRunning || currentPanelId === 'autoclicker';
+}
+
 let acToggleKeyValue = null;
 let acListeningForKey = false;
 
@@ -2593,6 +2713,7 @@ function setAcToggleKey(displayValue) {
     if (acToggleKeyLabel) acToggleKeyLabel.textContent = displayValue || 'None';
     updateHotkeyHint();
     saveAcSettings();
+    syncAcGlobalHotkey();
 }
 
 const AC_MODIFIER_KEYS = ['Control', 'Shift', 'Alt'];
@@ -3007,13 +3128,28 @@ const acStartIcon = acStartBtn ? acStartBtn.querySelector('i') : null;
 const acTabEl = document.getElementById('autoclicker');
 const acConfigEl = acTabEl ? acTabEl.querySelector('.autoclicker') : null;
 
-let acRunning = false;
-let acClickTimer = null;
+let acCurrentGeneration = 0;
 
-function performAcClick() {
+// Builds the list of { type, button|key } actions for the current click
+// mode, in the exact shape start_autoclicker_loop expects on the Rust side.
+function buildAcTickActions() {
+    if (acClickMode === 'mouse') {
+        return [{ type: 'mouse', button: acClickTypeSelect ? acClickTypeSelect.value : 'left' }];
+    }
+    if (acClickMode === 'keyboard') {
+        if (!acClickKeyValue) return [];
+        return [{ type: 'keyboard', key: acClickKeyValue }];
+    }
+    // 'multiple': fire every configured action together each tick (skipping
+    // any keyboard action that was never assigned a key).
+    return acActionList
+        .filter((action) => action.type !== 'keyboard' || !!action.key)
+        .map((action) => (action.type === 'keyboard'
+            ? { type: 'keyboard', key: action.key }
+            : { type: 'mouse', button: action.mouseButton || 'left' }));
 }
 
-function startAcClicking() {
+async function startAcClicking() {
     if (acRunning) return;
 
     if (acClickMode === 'keyboard' && !acClickKeyValue) {
@@ -3031,7 +3167,47 @@ function startAcClicking() {
         }
     }
 
+    if (appSettings.closeOnFocusLoss) {
+        triggerWarn('ac-close-on-focus-loss');
+        return;
+    }
+
+    if (acIsTauriEnv && window.__TAURI__?.core?.invoke) {
+        try {
+            acCurrentGeneration = await window.__TAURI__.core.invoke('bump_autoclicker_generation');
+        } catch (err) {
+            console.error('Could not start the autoclicker:', err);
+            return;
+        }
+        // Something else (e.g. the button was clicked again while awaiting)
+        // already started or stopped a run; don't start a second one.
+        if (acRunning) return;
+
+        const actions = buildAcTickActions();
+        const holdMs = acHoldTimeInput ? (parseInt(acHoldTimeInput.value, 10) || 1) : 1;
+        const cps = acCpsInput ? (parseInt(acCpsInput.value, 10) || 1) : 1;
+        const intervalMs = Math.max(1, Math.round(1000 / cps));
+
+        // Fire-and-forget: the whole click loop (schedule tick, press, hold,
+        // release, repeat) now runs entirely on the Rust side, driven by a
+        // tokio timer instead of a JS setInterval. A JS timer plus one IPC
+        // round trip per click was the actual ceiling on achievable CPS
+        // (it capped out well under what was configured); one invoke here
+        // per run removes both bottlenecks. The loop keeps running until
+        // Stop bumps the generation again (see bump_autoclicker_generation
+        // in stopAcClicking below).
+        window.__TAURI__.core.invoke('start_autoclicker_loop', {
+            actions,
+            holdMs,
+            intervalMs,
+            generation: acCurrentGeneration,
+        }).catch((err) => {
+            console.error('Autoclicker loop ended unexpectedly:', err);
+        });
+    }
+
     acRunning = true;
+    syncAcGlobalHotkey();
 
     if (acStartBtn) acStartBtn.classList.add('running');
     if (acTabEl) acTabEl.setAttribute('running', '');
@@ -3041,22 +3217,23 @@ function startAcClicking() {
     }
     if (acStartLabel) acStartLabel.textContent = 'Stop';
     if (acStartIcon) {
-        acStartIcon.classList.remove('fa-play');
-        acStartIcon.classList.add('fa-stop');
+        acStartIcon.classList.remove('icon-play');
+        acStartIcon.classList.add('icon-stop');
     }
-
-    const cps = acCpsInput ? (parseInt(acCpsInput.value, 10) || 1) : 1;
-    const intervalMs = Math.max(1, Math.round(1000 / cps));
-    acClickTimer = setInterval(performAcClick, intervalMs);
 }
 
 function stopAcClicking() {
     if (!acRunning) return;
     acRunning = false;
+    syncAcGlobalHotkey();
 
-    if (acClickTimer) {
-        clearInterval(acClickTimer);
-        acClickTimer = null;
+    // Invalidate this run's token right away: the Rust-side loop notices
+    // within its current tick/hold wait and stops instantly instead of
+    // trailing off over the next several clicks.
+    if (acIsTauriEnv && window.__TAURI__?.core?.invoke) {
+        window.__TAURI__.core.invoke('bump_autoclicker_generation').catch((err) => {
+            console.error('Could not fully stop the autoclicker:', err);
+        });
     }
 
     if (acStartBtn) acStartBtn.classList.remove('running');
@@ -3064,10 +3241,11 @@ function stopAcClicking() {
     if (acConfigEl) acConfigEl.inert = false;
     if (acStartLabel) acStartLabel.textContent = 'Start';
     if (acStartIcon) {
-        acStartIcon.classList.remove('fa-stop');
-        acStartIcon.classList.add('fa-play');
+        acStartIcon.classList.remove('icon-stop');
+        acStartIcon.classList.add('icon-play');
     }
 }
+
 
 function toggleAcRunning() {
     if (acRunning) {
@@ -3075,6 +3253,21 @@ function toggleAcRunning() {
     } else {
         startAcClicking();
     }
+}
+
+// The toggle-key hotkey fires app-wide, including when the person is on a
+// completely different tab. Starting the clicker from an unrelated tab
+// would be surprising (and hard to notice), so a start only goes through
+// while the Auto Clicker tab is actually the one on screen. Stopping is
+// always allowed regardless of tab, so the hotkey can never leave the
+// clicker running with no obvious way to turn it off.
+function acHandleHotkeyToggle() {
+    if (acRunning) {
+        stopAcClicking();
+        return;
+    }
+    if (currentPanelId !== 'autoclicker') return;
+    startAcClicking();
 }
 
 if (acStartBtn) {
@@ -3103,7 +3296,10 @@ document.addEventListener('keydown', (e) => {
 
     if (pressedDisplay === acToggleKeyValue) {
         e.preventDefault();
-        toggleAcRunning();
+        // The global hotkey already fires for this exact key (even while
+        // fTools is focused), so bail here to avoid toggling twice on one press.
+        if (acIsTauriEnv && acRegisteredAccelerator) return;
+        acHandleHotkeyToggle();
     }
 });
 
@@ -3242,7 +3438,6 @@ const TAB_TITLES = {
 };
 
 const titlebarTitle = document.getElementById('titlebar-title');
-let currentPanelId = 'fontstyler';
 
 function applyTitlebarTitle(fullTitle) {
     if (titlebarTitle) titlebarTitle.textContent = fullTitle;
@@ -3252,9 +3447,11 @@ function applyTitlebarTitle(fullTitle) {
 }
 
 function updateWindowTitle(panelId) {
+    const panelChanged = currentPanelId !== panelId;
     currentPanelId = panelId;
     const label = TAB_TITLES[panelId] || panelId;
     applyTitlebarTitle(appSettings.hideToolInTitlebar ? 'fTools' : `fTools | ${label}`);
+    if (panelChanged) syncAcGlobalHotkey();
 }
 
 function setConversionProgressTitle(percent) {

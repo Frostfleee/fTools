@@ -11,6 +11,7 @@ use std::path::{Path, PathBuf};
 
 use image::ImageFormat;
 use img_parts::ImageEXIF;
+use rand::Rng;
 use libheif_rs::{
     Channel, ColorSpace, CompressionFormat, EncoderQuality, HeifContext, Image as HeifImage,
     LibHeif, RgbChroma,
@@ -30,6 +31,16 @@ use windows::Win32::Graphics::Dwm::{
     DWM_BB_TRANSITIONONMAXIMIZED, DWM_BLURBEHIND,
 };
 use windows::Win32::Graphics::Gdi::{CreateRectRgn, DeleteObject};
+use windows::Win32::UI::Input::KeyboardAndMouse::{
+    MapVirtualKeyW, SendInput, INPUT, INPUT_0, INPUT_KEYBOARD, INPUT_MOUSE, KEYBDINPUT,
+    KEYEVENTF_EXTENDEDKEY, KEYEVENTF_KEYUP, KEYEVENTF_SCANCODE,
+    MAPVK_VK_TO_VSC_EX, MOUSEEVENTF_LEFTDOWN, MOUSEEVENTF_LEFTUP, MOUSEEVENTF_MIDDLEDOWN,
+    MOUSEEVENTF_MIDDLEUP, MOUSEEVENTF_RIGHTDOWN, MOUSEEVENTF_RIGHTUP, MOUSEINPUT,
+    MOUSE_EVENT_FLAGS, VIRTUAL_KEY, VK_BACK, VK_CAPITAL, VK_CONTROL, VK_DELETE, VK_DOWN, VK_END,
+    VK_HOME, VK_INSERT, VK_LEFT, VK_MENU, VK_NEXT, VK_OEM_1, VK_OEM_2, VK_OEM_3, VK_OEM_4,
+    VK_OEM_5, VK_OEM_6, VK_OEM_7, VK_OEM_COMMA, VK_OEM_MINUS, VK_OEM_PERIOD, VK_OEM_PLUS,
+    VK_PRIOR, VK_RETURN, VK_RIGHT, VK_SHIFT, VK_SPACE, VK_TAB, VK_UP,
+};
 
 
 fn image_conversion_supported(ext: &str) -> bool {
@@ -2374,6 +2385,349 @@ async fn convert_video(
     .map_err(|e| format!("Conversion task panicked: {e}"))?
 }
 
+/// One configured autoclicker input: either a mouse button or a keyboard key
+/// (possibly a "Ctrl + Shift + F6"-style combo), matching the shape the
+/// frontend already stores for the mouse/keyboard/multiple click modes.
+#[derive(serde::Deserialize)]
+#[serde(tag = "type", rename_all = "lowercase")]
+enum AcAction {
+    Mouse { button: String },
+    Keyboard { key: String },
+}
+
+struct AcMouseFlags {
+    down: MOUSE_EVENT_FLAGS,
+    up: MOUSE_EVENT_FLAGS,
+}
+
+fn ac_mouse_button_flags(button: &str) -> Result<AcMouseFlags, String> {
+    match button {
+        "left" => Ok(AcMouseFlags { down: MOUSEEVENTF_LEFTDOWN, up: MOUSEEVENTF_LEFTUP }),
+        "right" => Ok(AcMouseFlags { down: MOUSEEVENTF_RIGHTDOWN, up: MOUSEEVENTF_RIGHTUP }),
+        "middle" => Ok(AcMouseFlags { down: MOUSEEVENTF_MIDDLEDOWN, up: MOUSEEVENTF_MIDDLEUP }),
+        other => Err(format!("Unrecognized mouse button \"{other}\" for the autoclicker.")),
+    }
+}
+
+fn ac_vk_for_modifier(name: &str) -> Option<u16> {
+    match name {
+        "Ctrl" => Some(VK_CONTROL.0),
+        "Shift" => Some(VK_SHIFT.0),
+        "Alt" => Some(VK_MENU.0),
+        _ => None,
+    }
+}
+
+/// Maps one of the app's key-display strings (see KEY_DISPLAY_NAMES in
+/// app.js) to a Windows virtual-key code. Letters/digits map straight to
+/// their ASCII value, since VK_A-VK_Z and VK_0-VK_9 are defined to equal
+/// ASCII 'A'-'Z' and '0'-'9' on Windows.
+fn ac_vk_for_key(name: &str) -> Option<u16> {
+    let mut chars = name.chars();
+    if let (Some(c), None) = (chars.next(), chars.next()) {
+        if c.is_ascii_uppercase() || c.is_ascii_digit() {
+            return Some(c as u16);
+        }
+    }
+    if let Some(rest) = name.strip_prefix('F') {
+        if let Ok(n) = rest.parse::<u16>() {
+            if (1..=24).contains(&n) {
+                return Some(0x70 + (n - 1)); // VK_F1 = 0x70, contiguous through VK_F24 = 0x87
+            }
+        }
+    }
+    match name {
+        "Space" => Some(VK_SPACE.0),
+        "Enter" => Some(VK_RETURN.0),
+        "Tab" => Some(VK_TAB.0),
+        "Backspace" => Some(VK_BACK.0),
+        "Del" => Some(VK_DELETE.0),
+        "Caps Lock" => Some(VK_CAPITAL.0),
+        "PgUp" => Some(VK_PRIOR.0),
+        "PgDn" => Some(VK_NEXT.0),
+        "Home" => Some(VK_HOME.0),
+        "End" => Some(VK_END.0),
+        "Insert" => Some(VK_INSERT.0),
+        "Up Arrow" => Some(VK_UP.0),
+        "Down Arrow" => Some(VK_DOWN.0),
+        "Left Arrow" => Some(VK_LEFT.0),
+        "Right Arrow" => Some(VK_RIGHT.0),
+        "Comma" => Some(VK_OEM_COMMA.0),
+        "Period" => Some(VK_OEM_PERIOD.0),
+        "Semicolon" => Some(VK_OEM_1.0),
+        "Quote" => Some(VK_OEM_7.0),
+        "Slash" => Some(VK_OEM_2.0),
+        "Backslash" => Some(VK_OEM_5.0),
+        "[" => Some(VK_OEM_4.0),
+        "]" => Some(VK_OEM_6.0),
+        "-" => Some(VK_OEM_MINUS.0),
+        "=" => Some(VK_OEM_PLUS.0),
+        "`" => Some(VK_OEM_3.0),
+        _ => None,
+    }
+}
+
+/// Splits a "Ctrl + Shift + F6"-style display string into its modifier VK
+/// codes and its main-key VK code.
+fn ac_parse_key_combo(display: &str) -> Option<(Vec<u16>, u16)> {
+    let parts: Vec<&str> = display.split(" + ").collect();
+    let (main, mods) = parts.split_last()?;
+    let main_vk = ac_vk_for_key(main)?;
+    let mod_vks = mods.iter().filter_map(|m| ac_vk_for_modifier(m)).collect();
+    Some((mod_vks, main_vk))
+}
+
+/// A key ready to press: its virtual-key code plus the real hardware scan
+/// code (and extended-key bit) a physical keyboard would report for it.
+#[derive(Clone, Copy)]
+struct AcKeyPress {
+    vk: u16,
+    scan: u16,
+    extended: bool,
+}
+
+/// Resolves a VK code to the scan code (and extended-key bit) a real
+/// keyboard driver would report for it. Computed once per key when a run
+/// starts, not on every individual press, both because it's a syscall and
+/// because the mapping never changes mid-run.
+///
+/// This matters for two separate problems: some CPS testers and games
+/// (DirectInput/raw-input titles in particular) read the scan code rather
+/// than, or in addition to, the virtual key, and silently ignore or flag
+/// synthetic-looking events that only carry a virtual key with wScan left
+/// at 0, which is what a plain SendInput call defaults to.
+fn ac_resolve_key_press(vk: u16) -> AcKeyPress {
+    // MAPVK_VK_TO_VSC_EX also encodes the E0/E1 extended-key prefix in the
+    // high byte for keys like the arrows, Home/End/PageUp/PageDown/Insert/
+    // Delete, so this doubles as the extended-key check, no separate list
+    // of "which keys are extended" to keep in sync.
+    let mapped = unsafe { MapVirtualKeyW(vk as u32, MAPVK_VK_TO_VSC_EX) };
+    let scan = (mapped & 0xFF) as u16;
+    let prefix = mapped & 0xFF00;
+    let extended = prefix == 0xE000 || prefix == 0xE100;
+    AcKeyPress { vk, scan, extended }
+}
+
+fn ac_send_key_event(press: AcKeyPress, key_up: bool) {
+    // Scan code is sent alongside the virtual key (not instead of it): most
+    // things read one or the other, and Windows fills in the other side
+    // for anything reading via a different path (e.g. a low-level keyboard
+    // hook still gets a real vkCode even though KEYEVENTF_SCANCODE was
+    // used), so populating both is what a real keyboard driver effectively
+    // produces and is the most broadly compatible.
+    let mut dw_flags = KEYEVENTF_SCANCODE;
+    if press.extended {
+        dw_flags |= KEYEVENTF_EXTENDEDKEY;
+    }
+    if key_up {
+        dw_flags |= KEYEVENTF_KEYUP;
+    }
+    let input = INPUT {
+        r#type: INPUT_KEYBOARD,
+        Anonymous: INPUT_0 {
+            ki: KEYBDINPUT {
+                wVk: VIRTUAL_KEY(press.vk),
+                wScan: press.scan,
+                dwFlags: dw_flags,
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    };
+    unsafe {
+        SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
+    }
+}
+
+fn ac_send_mouse_event(flags: MOUSE_EVENT_FLAGS) {
+    let input = INPUT {
+        r#type: INPUT_MOUSE,
+        Anonymous: INPUT_0 {
+            mi: MOUSEINPUT {
+                dx: 0,
+                dy: 0,
+                mouseData: 0,
+                dwFlags: flags,
+                time: 0,
+                dwExtraInfo: 0,
+            },
+        },
+    };
+    unsafe {
+        SendInput(&[input], std::mem::size_of::<INPUT>() as i32);
+    }
+}
+
+/// Returns a duration randomized a bit around `base_ms` (roughly ±12%,
+/// floor of 1ms), used for both the wait between clicks and the hold time.
+/// A real person never presses at a perfectly uniform rate or holds a key
+/// for the exact same number of milliseconds every time; a couple of the
+/// CPS testers this was checked against flag input specifically for having
+/// zero timing variance, which a fixed interval always has.
+fn ac_jittered_duration(base_ms: u64) -> std::time::Duration {
+    let base = base_ms.max(1) as i64;
+    let amplitude = (base / 8).max(1);
+    let jitter = rand::thread_rng().gen_range(-amplitude..=amplitude);
+    std::time::Duration::from_millis((base + jitter).max(1) as u64)
+}
+
+enum AcResolvedAction {
+    Mouse(AcMouseFlags),
+    Keyboard(Vec<AcKeyPress>, AcKeyPress),
+}
+
+/// Tracks the autoclicker's current "run generation". Bumped by
+/// bump_autoclicker_generation whenever the run is started or stopped from
+/// the frontend, so start_autoclicker_loop can tell a fresh run from a
+/// stale one that was already in the IPC queue when Stop was pressed.
+struct AcClickerState {
+    generation: tokio::sync::watch::Sender<u64>,
+    // Kept alive for the app's lifetime purely so `generation` always has at
+    // least one live receiver. tokio::sync::watch::Sender::send() silently
+    // fails to update the value when there are zero receivers, and the
+    // receiver returned alongside the sender by watch::channel() would
+    // otherwise be dropped immediately, which broke the very first bump
+    // (i.e. the very first Start after launch) before anything else had
+    // ever subscribed.
+    _generation_rx: tokio::sync::watch::Receiver<u64>,
+}
+
+/// Bumps the autoclicker's run generation and returns the new value. The
+/// frontend calls this both when starting a run (to get the token every
+/// tick of that run should be stamped with) and when stopping one (to
+/// invalidate that token immediately, the return value is unused there).
+#[tauri::command]
+fn bump_autoclicker_generation(state: tauri::State<'_, AcClickerState>) -> u64 {
+    let next = state.generation.borrow().wrapping_add(1);
+    let _ = state.generation.send(next);
+    next
+}
+
+/// RAII guard that raises the Windows system timer resolution to 1ms for as
+/// long as an autoclicker run is alive, then restores it on drop. Windows'
+/// default timer resolution (roughly 15.6ms) is far too coarse to hit click
+/// rates anywhere near the UI's 1000 CPS ceiling; without this, waits like
+/// tokio's interval/sleep are quantized to that coarser resolution and the
+/// achievable rate plateaus well below what's configured.
+struct AcHighResTimer;
+
+impl AcHighResTimer {
+    fn acquire() -> Self {
+        unsafe {
+            windows::Win32::Media::timeBeginPeriod(1);
+        }
+        Self
+    }
+}
+
+impl Drop for AcHighResTimer {
+    fn drop(&mut self) {
+        unsafe {
+            windows::Win32::Media::timeEndPeriod(1);
+        }
+    }
+}
+
+/// Runs an autoclicker session end-to-end: on every tick, presses every
+/// configured action down (mouse button and/or keyboard key, for the
+/// mouse/keyboard/multiple click modes), holds for `hold_ms`, releases
+/// everything in reverse order, waits out the rest of the click-speed
+/// interval, and repeats, until `generation` is invalidated by Stop (or a
+/// new run starting). Uses SendInput, a real Windows-level input event, so
+/// clicks land on whatever window/app currently has the cursor or focus,
+/// exactly like the toggle hotkey works regardless of which window is
+/// active.
+///
+/// The whole loop lives on the Rust side and is driven by a single
+/// `tokio::time::interval` rather than the frontend calling back in on
+/// every tick: a JS `setInterval` plus one IPC round trip per click was
+/// itself the bottleneck on achievable CPS (observed plateauing well under
+/// a configured 1000 CPS). One `invoke` call per run removes both.
+///
+/// Every action is resolved to its VK codes/button flags up front, before
+/// anything is pressed, so a single unrecognized key never leaves some
+/// other action's button or modifier stuck held down. `generation` is the
+/// token the frontend stamped this run with when it started; every loop
+/// iteration checks it against the live value in `state`, so Stop (which
+/// bumps that value) ends the loop on its next tick or hold-wait, whichever
+/// comes first, without ever finishing a run out on its own.
+#[tauri::command]
+async fn start_autoclicker_loop(
+    actions: Vec<AcAction>,
+    hold_ms: u64,
+    interval_ms: u64,
+    generation: u64,
+    state: tauri::State<'_, AcClickerState>,
+) -> Result<(), String> {
+    if *state.generation.borrow() != generation {
+        return Ok(());
+    }
+
+    let mut resolved = Vec::with_capacity(actions.len());
+    for action in &actions {
+        match action {
+            AcAction::Mouse { button } => {
+                resolved.push(AcResolvedAction::Mouse(ac_mouse_button_flags(button)?));
+            }
+            AcAction::Keyboard { key } => {
+                let (mods, main) = ac_parse_key_combo(key)
+                    .ok_or_else(|| format!("Unrecognized autoclicker key \"{key}\"."))?;
+                let mod_presses = mods.into_iter().map(ac_resolve_key_press).collect();
+                let main_press = ac_resolve_key_press(main);
+                resolved.push(AcResolvedAction::Keyboard(mod_presses, main_press));
+            }
+        }
+    }
+
+    let _high_res_timer = AcHighResTimer::acquire();
+    let mut generation_rx = state.generation.subscribe();
+
+    loop {
+        tokio::select! {
+            _ = tokio::time::sleep(ac_jittered_duration(interval_ms)) => {},
+            _ = generation_rx.changed() => { break; }
+        }
+        if *generation_rx.borrow() != generation {
+            break;
+        }
+
+        for action in &resolved {
+            match action {
+                AcResolvedAction::Mouse(flags) => ac_send_mouse_event(flags.down),
+                AcResolvedAction::Keyboard(mods, main) => {
+                    for m in mods {
+                        ac_send_key_event(*m, false);
+                    }
+                    ac_send_key_event(*main, false);
+                }
+            }
+        }
+
+        tokio::select! {
+            _ = tokio::time::sleep(ac_jittered_duration(hold_ms)) => {},
+            _ = generation_rx.changed() => {},
+        }
+
+        for action in resolved.iter().rev() {
+            match action {
+                AcResolvedAction::Mouse(flags) => ac_send_mouse_event(flags.up),
+                AcResolvedAction::Keyboard(mods, main) => {
+                    ac_send_key_event(*main, true);
+                    for m in mods.iter().rev() {
+                        ac_send_key_event(*m, true);
+                    }
+                }
+            }
+        }
+
+        if *generation_rx.borrow() != generation {
+            break;
+        }
+    }
+
+    Ok(())
+}
+
 #[cfg(test)]
 mod audio_encoder_tests {
     use super::*;
@@ -2452,6 +2806,11 @@ fn main() {
         )
         .plugin(tauri_plugin_dialog::init())
         .plugin(tauri_plugin_fs::init())
+        .plugin(tauri_plugin_global_shortcut::Builder::new().build())
+        .manage({
+            let (generation, generation_rx) = tokio::sync::watch::channel(0u64);
+            AcClickerState { generation, _generation_rx: generation_rx }
+        })
         .setup(|app| {
             let window = app.get_webview_window("main").expect("no main window");
             apply_window_blur(&window);
@@ -2469,7 +2828,9 @@ fn main() {
         .invoke_handler(tauri::generate_handler![
             convert_image,
             convert_audio,
-            convert_video
+            convert_video,
+            start_autoclicker_loop,
+            bump_autoclicker_generation
         ])
         .run(tauri::generate_context!())
         .expect("error while running fTools");

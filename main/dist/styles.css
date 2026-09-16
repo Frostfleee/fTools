@@ -1,15 +1,17 @@
 @import url("fonts/codicon.css");
-@import url("fonts/fontawesome.css");
 @import url("themes.css");
 
 /*——/ Sidebar Icons /————————————————————————————————————————*/
-.icon-qrcode {
-    --qr-size: 22px;
-    --qr-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'%3E%3Cpath d='M8.125 3.125h-3.75a1.25 1.25 0 0 0-1.25 1.25v3.75a1.25 1.25 0 0 0 1.25 1.25h3.75a1.25 1.25 0 0 0 1.25-1.25v-3.75a1.25 1.25 0 0 0-1.25-1.25m0 5h-3.75v-3.75h3.75zm0 2.5h-3.75a1.25 1.25 0 0 0-1.25 1.25v3.75a1.25 1.25 0 0 0 1.25 1.25h3.75a1.25 1.25 0 0 0 1.25-1.25v-3.75a1.25 1.25 0 0 0-1.25-1.25m0 5h-3.75v-3.75h3.75zm7.5-12.5h-3.75a1.25 1.25 0 0 0-1.25 1.25v3.75a1.25 1.25 0 0 0 1.25 1.25h3.75a1.25 1.25 0 0 0 1.25-1.25v-3.75a1.25 1.25 0 0 0-1.25-1.25m0 5h-3.75v-3.75h3.75zm-4.375 6.25a.625.625 0 0 0 .625-.625v-2.5a.625.625 0 0 0-1.25 0v2.5a.625.625 0 0 0 .625.625'/%3E%3Cpath d='M16.25 11.875h-1.875v-.625a.625.625 0 0 0-1.25 0v4.375H11.25a.625.625 0 1 0 0 1.25h2.5a.625.625 0 0 0 .625-.625v-3.125h1.875a.625.625 0 0 0 0-1.25m0 2.5a.625.625 0 0 0-.625.625v1.25a.625.625 0 0 0 1.25 0V15a.625.625 0 0 0-.625-.625'/%3E%3C/svg%3E");
-    width: var(--qr-size);
-    height: var(--qr-size);
-    -webkit-mask-image: var(--qr-icon);
-    mask-image: var(--qr-icon);
+.icon-qrcode,
+.icon-convert,
+.icon-hold-time,
+.icon-mouse,
+.icon-play,
+.icon-stop {
+    width: var(--icon-size, 22px);
+    height: var(--icon-size, 22px);
+    -webkit-mask-image: var(--icon);
+    mask-image: var(--icon);
     display: inline-block;
     background-color: currentColor;
     -webkit-mask-repeat: no-repeat;
@@ -19,21 +21,25 @@
     -webkit-mask-size: contain;
     mask-size: contain;
 }
+.icon-qrcode {
+    --icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'><path d='M8.125 3.125h-3.75a1.25 1.25 0 0 0-1.25 1.25v3.75a1.25 1.25 0 0 0 1.25 1.25h3.75a1.25 1.25 0 0 0 1.25-1.25v-3.75a1.25 1.25 0 0 0-1.25-1.25m0 5h-3.75v-3.75h3.75zm0 2.5h-3.75a1.25 1.25 0 0 0-1.25 1.25v3.75a1.25 1.25 0 0 0 1.25 1.25h3.75a1.25 1.25 0 0 0 1.25-1.25v-3.75a1.25 1.25 0 0 0-1.25-1.25m0 5h-3.75v-3.75h3.75zm7.5-12.5h-3.75a1.25 1.25 0 0 0-1.25 1.25v3.75a1.25 1.25 0 0 0 1.25 1.25h3.75a1.25 1.25 0 0 0 1.25-1.25v-3.75a1.25 1.25 0 0 0-1.25-1.25m0 5h-3.75v-3.75h3.75zm-4.375 6.25a.625.625 0 0 0 .625-.625v-2.5a.625.625 0 0 0-1.25 0v2.5a.625.625 0 0 0 .625.625'/><path d='M16.25 11.875h-1.875v-.625a.625.625 0 0 0-1.25 0v4.375H11.25a.625.625 0 1 0 0 1.25h2.5a.625.625 0 0 0 .625-.625v-3.125h1.875a.625.625 0 0 0 0-1.25m0 2.5a.625.625 0 0 0-.625.625v1.25a.625.625 0 0 0 1.25 0V15a.625.625 0 0 0-.625-.625'/></svg>");
+}
 .icon-convert {
-    --convert-size: 22px;
-    --convert-icon: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 22 22' fill='none'%3E%3Cg stroke-width='0'/%3E%3Cg stroke-linecap='round' stroke-linejoin='round'/%3E%3Cpath d='m3.917 11.833-.17-.793A4.167 4.167 0 0 1 7.821 6h9.012m0 0-2.499 2.5m2.5-2.5-2.5-2.5m3.75 6.667.17.793A4.167 4.167 0 0 1 14.18 16H5.167m0 0 2.5-2.5m-2.5 2.5 2.5 2.5' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/%3E%3C/svg%3E");
-    width: var(--convert-size);
-    height: var(--convert-size);
-    -webkit-mask-image: var(--convert-icon);
-    mask-image: var(--convert-icon);
-    display: inline-block;
-    background-color: currentColor;
-    -webkit-mask-repeat: no-repeat;
-    mask-repeat: no-repeat;
-    -webkit-mask-position: center;
-    mask-position: center;
-    -webkit-mask-size: contain;
-    mask-size: contain;
+    --icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 22 22' fill='none'><path d='m3.917 11.833-.17-.793A4.167 4.167 0 0 1 7.821 6h9.012m0 0-2.499 2.5m2.5-2.5-2.5-2.5m3.75 6.667.17.793A4.167 4.167 0 0 1 14.18 16H5.167m0 0 2.5-2.5m-2.5 2.5 2.5 2.5' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+}
+.icon-hold-time {
+    --icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none'><path d='M15.417 1.667H7.282a.11.11 0 0 0-.091.05L3.275 8.03a1.706 1.706 0 1 0 2.921 1.763l1.026-1.748v8.646a1.643 1.643 0 0 0 3.285 0v-3.887c0-.244.194-.444.438-.452l4.842-.162a.91.91 0 0 0 .88-.91V2.917a1.25 1.25 0 0 0-1.25-1.25' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+}
+.icon-mouse {
+    --icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 24 24' fill='none'><path d='M5.583 9.25a6.417 6.417 0 1 1 12.833 0v5.5a6.417 6.417 0 1 1 -12.833 0zm5.042 -0.458a1.375 1.375 0 0 1 2.75 0v1.833a1.375 1.375 0 0 1 -2.75 0zM12 2.833v4.583' stroke='currentColor' stroke-width='2' stroke-linecap='round'/></svg>");
+}
+.icon-play {
+    --icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 640'><path d='M187.2 100.9C174.8 94.1 159.8 94.4 147.6 101.6C135.4 108.8 128 121.9 128 136L128 504C128 518.1 135.5 531.2 147.6 538.4C159.7 545.6 174.8 545.9 187.2 539.1L523.2 355.1C536 348.1 544 334.6 544 320C544 305.4 536 291.9 523.2 284.9L187.2 100.9z'/></svg>");
+    --icon-size: 14px;
+}
+.icon-stop {
+    --icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 640'><path d='M160 96L480 96C515.3 96 544 124.7 544 160L544 480C544 515.3 515.3 544 480 544L160 544C124.7 544 96 515.3 96 480L96 160C96 124.7 124.7 96 160 96z'/></svg>");
+    --icon-size: 14px;
 }
 
 /*——/ Noise /————————————————————————————————————————————————*/
@@ -466,22 +472,22 @@ body.skip-tab-anim #t-settings.sidebar-button.active i {
     display: inline;
 }
 .warn a::before {
-    font-family: "FontAwesome";
+    font-family: "codicon";
     margin: 0 9px 0 0;
     font-size: 16px;
     position: relative;
     top: 1.25px;
 }
 .warn a.success::before {
-    content: "\f058";
+    content: "\eba4";
     color: var(--t-success);
 }
 .warn a.warning::before {
-    content: "\f06a";
+    content: "\ea6c";
     color: var(--t-warning);
 }
 .warn a.danger::before {
-    content: "\f057";
+    content: "\ea87";
     color: var(--t-danger);
 }
 .warn-count {
@@ -1214,10 +1220,15 @@ input.input-box:not(:placeholder-shown) {
     left: 17px;
     top: 50%;
     transform: translateY(-50%);
-    width: 23px;
-    font-size: 18px;
+    width: 22px;
+    font-size: 22px;
     color: var(--t-mainColor);
     text-align: center;
+}
+.linked .autoclicker-icon {
+    height: 20px;
+    width: 20px;
+    font-size: 20px;
 }
 .autoclicker-name span {
     position: absolute;
@@ -1421,8 +1432,10 @@ input.input-box:not(:placeholder-shown) {
 .ac-action-item > i {
     font-size: 15px;
     width: 26px;
+    height: 16px;
     padding-right: 7px;
     text-align: center;
+    mask-position: 5px;
 }
 .ac-action-item > .ac-action-type {
     width: 62px;
@@ -1520,7 +1533,7 @@ input.input-box:not(:placeholder-shown) {
     transform: none;
 }
 #ac-action-list-row[has-item] .autoclicker-name i {
-    transform: scale(0.7) translate3d(14px, -12px, 0);
+    transform: scale(0.65) translate3d(15px, -15px, 0);
 }
 .ac-action-add:hover:not(:disabled) {
     background-color: var(--t-settingsButtonToggleBgHoverAlt);
@@ -1542,7 +1555,8 @@ input.input-box:not(:placeholder-shown) {
     background-color: var(--t-acButtonStopBg);
 }
 #ac-start i {
-    font-size: 12px;
+    width: 14px;
+    height: 14px;
     transform: translateY(1px);
     transition: 50ms;
 }
@@ -1572,6 +1586,11 @@ input.input-box:not(:placeholder-shown) {
 #autoclicker[running] button[type="button"] {
     opacity: 0.5;
     pointer-events: none;
+}
+.ac-mode-switch i {
+    font-size: 17px !important;
+    width: 17px !important;
+    height: 17px !important;
 }
 
 /*——/ QR Code Converter /————————————————————————————————————*/
@@ -1892,8 +1911,8 @@ button#qr-copy-image.button {
     left: 17px;
     top: 50%;
     transform: translateY(-50%);
-    width: 23px;
-    font-size: 18px;
+    width: 22px;
+    font-size: 22px;
     color: var(--t-mainColor);
     text-align: center;
 }

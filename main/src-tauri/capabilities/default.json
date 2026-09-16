@@ -11,6 +11,8 @@
     "core:window:allow-set-always-on-top",
     "core:window:allow-close",
     "dialog:default",
+    "global-shortcut:allow-register",
+    "global-shortcut:allow-unregister",
     "allow-app-commands",
     "fs:allow-write-file",
     "core:window:allow-minimize",

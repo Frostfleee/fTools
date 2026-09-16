@@ -1,6 +1,6 @@
 [package]
 name = "ftools"
-version = "0.9.5"
+version = "0.9.6"
 description = "fTools"
 edition = "2021"
 
@@ -11,6 +11,9 @@ tauri-build = { version = "2", features = [] }
 tauri = { version = "2", features = ["protocol-asset"] }
 tauri-plugin-dialog = "2"
 tauri-plugin-fs = "2"
+tauri-plugin-global-shortcut = "2"
+tokio = { version = "1", features = ["time", "sync", "macros"] }
+rand = "0.8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 image = { version = "0.25", default-features = false, features = ["jpeg", "png", "gif", "bmp", "ico", "tiff", "webp", "avif"] }
@@ -31,6 +34,8 @@ windows = { version = "0.62", features = [
     "Win32_Graphics_Dwm",
     "Win32_Graphics_Gdi",
     "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+    "Win32_Media",
 ] }
 tauri-plugin-single-instance = "2.4.3"
 window-vibrancy = "0.8.0"

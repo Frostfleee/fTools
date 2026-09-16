@@ -19,17 +19,15 @@ Prerequisites:
 - [Tauri CLI](https://tauri.app/start/): `cargo install tauri-cli`
 - The usual Tauri prerequisites on Windows: Microsoft C++ Build Tools (or Visual Studio) and the WebView2 runtime
 
-```
+```Shell
 git clone https://github.com/Frostfleee/fTools/
 cd fTools
 cargo tauri build
 ```
 
-The installer is produced at `src-tauri/target/release/bundle/nsis/`.
-
 For local development without producing an installer:
 
-```
+```Shell
 cargo tauri dev
 ```
 
@@ -38,30 +36,41 @@ cargo tauri dev
 ```
 main/
 ├── fonts/
-│   └── (fonts files)                  Codicon and FontAwesome's .ttf, .woff2 and .css files
+│   ├── codicon.css               Icon font CSS classes
+│   └── codicon.ttf               Codicon icon font glyphs
 ├── icons/
-│   ├── icon.png                       Regular version of the app icon
-│   └── icon_hc.png                    High contrast version of the app icon
+│   ├── icon.png                  Regular version of the app icon
+│   └── icon_hc.png               High contrast version of the app icon
 ├── qrcode/
-│   └── qrcode-generator.min.js        QR code creation logic
-├── index.html                         Main window UI: every tool's markup
-├── app.js                             Frontend logic for every tool
-├── styles.css                         Styling for the main window and all tools
-├── themes.css                         CSS variables for the themes and high contrast variations
+│   └── generator.js              QR code creation logic
+├── index.html                    Main window UI: every tool's markup
+├── app.js                        Frontend logic for every tool
+├── styles.css                    Styling for the main window and all tools
+├── themes.css                    CSS variables for the themes and high contrast variations
 └── src-tauri/
     ├── .cargo/
-    │   └── config.toml                Sets vpx env vars before build scripts run
+    │   └── config.toml           Sets vpx env vars before build scripts run
     ├── src/
-    │   ├── main.rs                    Rust backend: image, audio, and video conversion commands
-    │   ├── ebml.rs                    WebM container read/write (Matroska elements)
-    │   └── vpx.rs                     Hand-written libvpx FFI bindings (VP9 encode/decode)
-    ├── Cargo.toml                     Rust dependencies
-    ├── tauri.conf.json                App, window, and bundle configuration
+    │   ├── main.rs               Rust backend: image, audio, and video conversion commands
+    │   ├── ebml.rs               WebM container read/write (Matroska elements)
+    │   └── vpx.rs                Hand-written libvpx FFI bindings (VP9 encode/decode)
+    ├── Cargo.toml                Rust dependencies
+    ├── tauri.conf.json           App, window, and bundle configuration
     ├── capabilities/              
-    │   └── default.json               Core window/webview/dialog permissions for the main window
+    │   └── default.json          Core window/webview/dialog permissions for the main window
     └── permissions/
-        └── media-conversion.toml      Permissions (convert_image, convert_audio, convert_video)
+        └── app-commands.toml     Permissions (convert_image, convert_audio, convert_video...)
 ```
+
+## Requirements
+| Requirement | Details |
+|:---|:---|
+| OS | Windows 10 (1809+) or Windows 11 |
+| Architecture | x64, ARM64 |
+| RAM | 2 GB min, 4 GB recommended (app uses ~10 MB) |
+| Storage | ~40 MB free |
+| Runtime | None required |
+| Permissions | No admin rights. [SmartScreen](https://learn.microsoft.com/en-us/windows/security/operating-system-security/virus-and-threat-protection/microsoft-defender-smartscreen/) may warn once on first launch (app isn't code signed) |
 
 ## License
 MIT. See [LICENSE](LICENSE).
