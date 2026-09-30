@@ -1,6 +1,6 @@
 [package]
 name = "ftools"
-version = "0.9.6"
+version = "0.9.7"
 description = "fTools"
 edition = "2021"
 
@@ -28,6 +28,7 @@ vorbis_rs = "0.5"
 opus-rs = "0.1"
 ogg = "0.9"
 rubato = "0.15"
+openh264 = "0.9.8"
 windows = { version = "0.62", features = [
     "Win32_Media_MediaFoundation",
     "Win32_System_Com",

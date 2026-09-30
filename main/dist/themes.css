@@ -467,3 +467,26 @@
     --t-windowDragBorder: #000;
     --t-dashGap: #000;
 }
+
+[theme="transparent"][background-active][bg-brightness="light"] {
+    --t-windowTitle: #000;
+    --t-windowTitleFocus: #000;
+    --t-windowTitleButton: #000;
+    --t-windowTitleMinimizeHover: #000;
+    --t-mainColor: #000;
+    --t-contrastColor: #000;
+    --t-placeholderColor: #000;
+    --t-checkboxBorder: #13131370;
+    --t-sliderBorder: #131313a0;
+    --t-sliderKnob: #131313a0;
+}
+
+[theme="transparent"][background-active][bg-brightness="dark"] {
+    --t-windowTitle: #a2a2a2;
+    --t-windowTitleFocus: #fdfdfd;
+    --t-windowTitleButton: #999;
+    --t-windowTitleMinimizeHover: #fff;
+    --t-mainColor: #eee;
+    --t-contrastColor: #fff;
+    --t-placeholderColor: #d0d0d0;
+}

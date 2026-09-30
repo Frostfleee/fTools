@@ -124,11 +124,15 @@ pub struct RealDecCfg {
 }
 
 // enum vpx_rc_mode values (vpx_encoder.h)
-const VPX_CBR: i32 = 1;
+const VPX_VBR: i32 = 0;
 // enum vpx_kf_mode values
 const VPX_KF_AUTO: i32 = 1;
 // enum vpx_enc_pass
 const VPX_RC_ONE_PASS: i32 = 0;
+
+const CPU_USED: c_int = 5;
+const LAG_IN_FRAMES: u32 = 16;
+const KEYFRAME_MAX_DISTANCE: u32 = 240;
 
 pub struct EncodedFrame {
     pub data: Vec<u8>,
@@ -143,7 +147,8 @@ pub struct Vp9Encoder {
 }
 
 impl Vp9Encoder {
-    pub fn new(width: u32, height: u32, fps_num: u32, fps_den: u32, bitrate_kbps: u32) -> Result<Self, String> {
+    /// Timebase is 1/1000, so `pts`/`duration` passed to `encode_frame` are milliseconds.
+    pub fn new(width: u32, height: u32, bitrate_kbps: u32, threads: u32) -> Result<Self, String> {
         if width == 0 || height == 0 || width % 2 != 0 || height % 2 != 0 {
             return Err("Video dimensions must be non-zero and even for VP9 encoding.".to_string());
         }
@@ -153,17 +158,19 @@ impl Vp9Encoder {
             let mut cfg = RealEncCfg::default();
             let err = sys::vpx_codec_enc_config_default(iface, &mut cfg as *mut RealEncCfg as *mut sys::vpx_codec_enc_cfg_t, 0);
             if err != sys::vpx_codec_err_t::VPX_CODEC_OK {
-                return Err(format!("Couldn't get default VP9 encoder config (libvpx error {err:?}).").to_string());
+                return Err(format!("Couldn't get default VP9 encoder config (libvpx error {err:?})."));
             }
 
             cfg.g_w = width;
             cfg.g_h = height;
-            cfg.g_timebase = VpxRational { num: fps_den.max(1) as i32, den: fps_num.max(1) as i32 };
-            cfg.rc_target_bitrate = bitrate_kbps;
-            cfg.rc_end_usage = VPX_CBR;
+            cfg.g_threads = threads.max(1);
+            cfg.g_timebase = VpxRational { num: 1, den: 1000 };
+            cfg.rc_target_bitrate = bitrate_kbps.max(1);
+            cfg.rc_end_usage = VPX_VBR;
             cfg.g_pass = VPX_RC_ONE_PASS;
             cfg.kf_mode = VPX_KF_AUTO;
-            cfg.g_lag_in_frames = 0;
+            cfg.kf_max_dist = KEYFRAME_MAX_DISTANCE;
+            cfg.g_lag_in_frames = LAG_IN_FRAMES;
 
             let mut ctx: sys::vpx_codec_ctx_t = std::mem::zeroed();
             let err = sys::vpx_codec_enc_init_ver(
@@ -174,17 +181,21 @@ impl Vp9Encoder {
                 sys::VPX_ENCODER_ABI_VERSION as c_int,
             );
             if err != sys::vpx_codec_err_t::VPX_CODEC_OK {
-                return Err(format!("Couldn't initialize the VP9 encoder (libvpx error {err:?}).").to_string());
+                return Err(format!("Couldn't initialize the VP9 encoder (libvpx error {err:?})."));
             }
+
+            let tile_columns = (threads.max(1) as f32).log2().floor().min(4.0) as c_int;
+            sys::vpx_codec_control_(&mut ctx, sys::vp8e_enc_control_id::VP8E_SET_CPUUSED as c_int, CPU_USED);
+            sys::vpx_codec_control_(&mut ctx, sys::vp8e_enc_control_id::VP9E_SET_ROW_MT as c_int, 1 as c_uint);
+            sys::vpx_codec_control_(&mut ctx, sys::vp8e_enc_control_id::VP9E_SET_TILE_COLUMNS as c_int, tile_columns);
 
             Ok(Self { ctx, width, height })
         }
     }
 
     /// `i420` must be exactly `width * height * 3 / 2` bytes, tightly packed
-    /// (Y plane, then U, then V, no row padding). `frame_number` is a simple
-    /// 0-based running count.
-    pub fn encode_frame(&mut self, frame_number: i64, i420: &[u8]) -> Result<Vec<EncodedFrame>, String> {
+    /// (Y plane, then U, then V, no row padding).
+    pub fn encode_frame(&mut self, pts: i64, duration: u64, i420: &[u8]) -> Result<Vec<EncodedFrame>, String> {
         let expected_len = (self.width as usize * self.height as usize * 3) / 2;
         if i420.len() != expected_len {
             return Err(format!(
@@ -206,29 +217,43 @@ impl Vp9Encoder {
             if got.is_null() {
                 return Err("Couldn't wrap this frame's bytes as a VP9 input image.".to_string());
             }
-
-            let err = sys::vpx_codec_encode(&mut self.ctx, &img, frame_number, 1, 0, sys::VPX_DL_REALTIME as c_ulong);
-            if err != sys::vpx_codec_err_t::VPX_CODEC_OK {
-                return Err(format!("VP9 encode error on frame {frame_number} (libvpx error {err:?}).").to_string());
-            }
-
-            let mut out = Vec::new();
-            let mut iter: sys::vpx_codec_iter_t = ptr::null();
-            loop {
-                let pkt = sys::vpx_codec_get_cx_data(&mut self.ctx, &mut iter);
-                if pkt.is_null() {
-                    break;
-                }
-                let pkt = &*pkt;
-                if pkt.kind == sys::vpx_codec_cx_pkt_kind::VPX_CODEC_CX_FRAME_PKT {
-                    let frame = &pkt.data.frame;
-                    let bytes = std::slice::from_raw_parts(frame.buf as *const u8, frame.sz).to_vec();
-                    let keyframe = (frame.flags & sys::VPX_FRAME_IS_KEY) != 0;
-                    out.push(EncodedFrame { data: bytes, pts: frame.pts, keyframe });
-                }
-            }
-            Ok(out)
+            self.encode_raw(&img, pts, duration.max(1))
         }
+    }
+
+    pub fn flush(&mut self) -> Result<Vec<EncodedFrame>, String> {
+        let mut out = Vec::new();
+        loop {
+            let got = unsafe { self.encode_raw(ptr::null(), 0, 1)? };
+            if got.is_empty() {
+                return Ok(out);
+            }
+            out.extend(got);
+        }
+    }
+
+    unsafe fn encode_raw(&mut self, img: *const sys::vpx_image_t, pts: i64, duration: u64) -> Result<Vec<EncodedFrame>, String> {
+        let err = sys::vpx_codec_encode(&mut self.ctx, img, pts, duration as c_ulong, 0, sys::VPX_DL_GOOD_QUALITY as c_ulong);
+        if err != sys::vpx_codec_err_t::VPX_CODEC_OK {
+            return Err(format!("VP9 encode error at {pts} ms (libvpx error {err:?})."));
+        }
+
+        let mut out = Vec::new();
+        let mut iter: sys::vpx_codec_iter_t = ptr::null();
+        loop {
+            let pkt = sys::vpx_codec_get_cx_data(&mut self.ctx, &mut iter);
+            if pkt.is_null() {
+                break;
+            }
+            let pkt = &*pkt;
+            if pkt.kind == sys::vpx_codec_cx_pkt_kind::VPX_CODEC_CX_FRAME_PKT {
+                let frame = &pkt.data.frame;
+                let bytes = std::slice::from_raw_parts(frame.buf as *const u8, frame.sz).to_vec();
+                let keyframe = (frame.flags & sys::VPX_FRAME_IS_KEY) != 0;
+                out.push(EncodedFrame { data: bytes, pts: frame.pts, keyframe });
+            }
+        }
+        Ok(out)
     }
 }
 
@@ -247,15 +272,15 @@ pub struct DecodedFrame {
     pub height: u32,
 }
 
-pub struct Vp9Decoder {
+pub struct VpxDecoder {
     ctx: sys::vpx_codec_ctx_t,
 }
 
-impl Vp9Decoder {
-    pub fn new() -> Result<Self, String> {
+impl VpxDecoder {
+    pub fn new(vp8: bool, threads: u32) -> Result<Self, String> {
         unsafe {
-            let iface = sys::vpx_codec_vp9_dx();
-            let cfg = RealDecCfg::default();
+            let iface = if vp8 { sys::vpx_codec_vp8_dx() } else { sys::vpx_codec_vp9_dx() };
+            let cfg = RealDecCfg { threads: threads.max(1), w: 0, h: 0 };
             let mut ctx: sys::vpx_codec_ctx_t = std::mem::zeroed();
             let err = sys::vpx_codec_dec_init_ver(
                 &mut ctx,
@@ -265,19 +290,19 @@ impl Vp9Decoder {
                 sys::VPX_DECODER_ABI_VERSION as c_int,
             );
             if err != sys::vpx_codec_err_t::VPX_CODEC_OK {
-                return Err(format!("Couldn't initialize the VP9 decoder (libvpx error {err:?}).").to_string());
+                return Err(format!("Couldn't initialize the VP8/VP9 decoder (libvpx error {err:?})."));
             }
             Ok(Self { ctx })
         }
     }
 
-    /// Feed one compressed VP9 packet (one WEBM SimpleBlock's payload).
+    /// Feed one compressed VP8/VP9 packet (one WEBM SimpleBlock's payload).
     /// May return zero, one, or more decoded frames.
     pub fn decode_packet(&mut self, data: &[u8]) -> Result<Vec<DecodedFrame>, String> {
         unsafe {
             let err = sys::vpx_codec_decode(&mut self.ctx, data.as_ptr(), data.len() as c_uint, ptr::null_mut(), 0 as c_long);
             if err != sys::vpx_codec_err_t::VPX_CODEC_OK {
-                return Err(format!("VP9 decode error (libvpx error {err:?}).").to_string());
+                return Err(format!("VP8/VP9 decode error (libvpx error {err:?})."));
             }
 
             let mut out = Vec::new();
@@ -298,7 +323,7 @@ impl Vp9Decoder {
     }
 }
 
-impl Drop for Vp9Decoder {
+impl Drop for VpxDecoder {
     fn drop(&mut self) {
         unsafe {
             sys::vpx_codec_destroy(&mut self.ctx);

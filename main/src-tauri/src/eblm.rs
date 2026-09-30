@@ -145,7 +145,6 @@ pub struct TrackMeta {
     pub sample_rate: Option<f64>,
     pub channels: Option<u64>,
     pub codec_delay_ns: Option<u64>,
-    pub seek_preroll_ns: Option<u64>,
 }
 
 pub fn parse_tracks(full_file: &[u8]) -> io::Result<Vec<TrackMeta>> {
@@ -164,7 +163,6 @@ pub fn parse_tracks(full_file: &[u8]) -> io::Result<Vec<TrackMeta>> {
         let codec_id = find(&fields, ID_CODEC_ID).map(as_string).unwrap_or_default();
         let codec_private = find(&fields, ID_CODEC_PRIVATE).map(|e| e.data.clone()).unwrap_or_default();
         let codec_delay_ns = find(&fields, ID_CODEC_DELAY).map(as_uint);
-        let seek_preroll_ns = find(&fields, ID_SEEK_PREROLL).map(as_uint);
 
         let (mut width, mut height) = (None, None);
         if let Some(v) = find(&fields, ID_VIDEO) {
@@ -190,7 +188,7 @@ pub fn parse_tracks(full_file: &[u8]) -> io::Result<Vec<TrackMeta>> {
         out.push(TrackMeta {
             number, track_type, codec_id, codec_private,
             width, height, sample_rate, channels,
-            codec_delay_ns, seek_preroll_ns,
+            codec_delay_ns,
         });
     }
     Ok(out)
