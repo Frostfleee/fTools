@@ -476,6 +476,9 @@
     --t-mainColor: #000;
     --t-contrastColor: #000;
     --t-placeholderColor: #000;
+    --t-checkboxBorder: #13131370;
+    --t-sliderBorder: #131313a0;
+    --t-sliderKnob: #131313a0;
 }
 
 [theme="transparent"][background-active][bg-brightness="dark"] {

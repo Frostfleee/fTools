@@ -1351,7 +1351,7 @@ checksum = "795cbfc56d419a7ce47ccbb7504dd9a5b7c484c083c356e797de08bd988d9629"
 
 [[package]]
 name = "ftools"
-version = "0.9.6"
+version = "0.9.7"
 dependencies = [
  "env-libvpx-sys",
  "flacenc",
