@@ -4357,13 +4357,18 @@ function renderEditorList() {
     });
 }
 
-document.getElementById('s-open-sidebar-editor')?.addEventListener('click', () => {
+const sidebarEditorOpenButton = document.getElementById('s-open-sidebar-editor');
+const sidebarEditorBackButton = document.getElementById('editor-back');
+
+sidebarEditorOpenButton?.addEventListener('click', () => {
     renderEditorList();
     activatePanel('sidebar-editor');
+    sidebarEditorBackButton?.focus({ focusVisible: true });
 });
 
-document.getElementById('editor-back')?.addEventListener('click', () => {
+sidebarEditorBackButton?.addEventListener('click', () => {
     activatePanel('settings');
+    sidebarEditorOpenButton?.focus({ focusVisible: true });
 });
 
 document.getElementById('editor-reset')?.addEventListener('click', () => {
