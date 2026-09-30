@@ -704,6 +704,12 @@ function updatePickerPreview(hue, lightness) {
     pickerPreview.style.backgroundColor = finalColor;
     pickerDarkness.style.background = `linear-gradient(${baseHsl}, #0000)`;
     pickerTransparency.style.background = `linear-gradient(${darkMix}, #0000)`;
+    updatePickerSliderTooltips();
+}
+
+function updatePickerSliderTooltips() {
+    pickerDarkness.setAttribute('tooltip', `Darkness: ${Math.round(pickerDarkness.value)}%`);
+    pickerTransparency.setAttribute('tooltip', `Transparency: ${Math.round(pickerTransparency.value)}%`);
 }
 
 function pickerCurrentHue() {
@@ -876,6 +882,7 @@ function syncPickerFromColor(rgba) {
 
     pickerDarkness.value = Math.round(dark * 100);
     pickerTransparency.value = Math.round((1 - rgba.a) * 100);
+    updatePickerSliderTooltips();
 
     const baseRgb = hslToRgb(h, 100, light);
     const darkRgb = {
@@ -931,6 +938,7 @@ function setupColorPanel() {
     swatch.tabIndex = 0;
     swatch.setAttribute('role', 'button');
     swatch.setAttribute('aria-label', 'Open color picker');
+    swatch.setAttribute('tooltip', 'Open color picker');
     const textSpan = document.createElement('span');
     textSpan.className = 'color-text';
     content.appendChild(swatch);
@@ -1312,6 +1320,28 @@ function setupMediaPanel() {
 
         const { invoke } = window.__TAURI__.core;
         const { listen } = window.__TAURI__.event;
+        const outputName = fileNameInput.value || originalFileName;
+        const targetExt = dropdown.value.toLowerCase();
+
+        const existingFolder = await invoke('existing_output_folder', {
+            sourcePath: originalFilePath,
+            outputName,
+            targetExt
+        }).catch((err) => {
+            console.error('Could not check for an existing output file:', err);
+            return null;
+        });
+        if (existingFolder !== null) {
+            const choice = await showDialog({
+                title: 'Replace existing file?',
+                message: `“${outputName}.${targetExt}” already exists in “${existingFolder}”. Proceeding will permanently delete the old file.`,
+                buttons: [
+                    { label: 'Replace', value: 'replace', featured: true },
+                    { label: 'Cancel', value: 'cancel', focus: true }
+                ]
+            });
+            if (choice !== 'replace') return;
+        }
 
         showLoading();
         const unlisten = await listen('conversion-progress', (event) => {
@@ -1322,8 +1352,8 @@ function setupMediaPanel() {
             const outputPath = effectiveKind === 'image'
                 ? await invoke('convert_image', {
                     sourcePath: originalFilePath,
-                    outputName: fileNameInput.value || originalFileName,
-                    targetExt: dropdown.value.toLowerCase(),
+                    outputName,
+                    targetExt,
                     keepMetadata: metadataCheckbox.checked,
                     preserveDate: preserveCheckbox.checked,
                     overwrite: overwriteCheckbox.checked
@@ -1331,15 +1361,15 @@ function setupMediaPanel() {
                 : effectiveKind === 'video'
                 ? await invoke('convert_video', {
                     sourcePath: originalFilePath,
-                    outputName: fileNameInput.value || originalFileName,
-                    targetExt: dropdown.value.toLowerCase(),
+                    outputName,
+                    targetExt,
                     preserveDate: preserveCheckbox.checked,
                     overwrite: overwriteCheckbox.checked
                 })
                 : await invoke('convert_audio', {
                     sourcePath: originalFilePath,
-                    outputName: fileNameInput.value || originalFileName,
-                    targetExt: dropdown.value.toLowerCase(),
+                    outputName,
+                    targetExt,
                     preserveDate: preserveCheckbox.checked,
                     overwrite: overwriteCheckbox.checked
                 });
@@ -1390,6 +1420,7 @@ function setupQrConverter() {
 
     const textInput = document.getElementById('qr-text');
     const eclSelect = document.getElementById('qr-ecl');
+    const eclRow = document.getElementById('qr-ecl-row');
     const eclStops = Array.from(document.querySelectorAll('#qr-ecl-stops .qr-ecl-stop'));
     const eclTrack = document.getElementById('qr-ecl-track');
     const eclThumbVisual = document.getElementById('qr-ecl-thumb');
@@ -1513,6 +1544,8 @@ function setupQrConverter() {
     function setEclSelected(value) {
         eclStops.forEach((btn) => btn.classList.toggle('selected', btn.dataset.value === value));
         setEclThumb(value);
+        const level = eclSelect.querySelector(`option[value="${value}"]`)?.textContent;
+        if (level) eclRow?.setAttribute('tooltip', `Error correction: ${level}`);
     }
 
     function setEcl(value) {
@@ -2177,7 +2210,7 @@ function hideFocusRing() {
     if (focusRing.matches(':popover-open')) focusRing.hidePopover();
 }
 
-let usingKeyboard = true;
+let usingKeyboard = false;
 
 document.addEventListener('pointerdown', () => {
     usingKeyboard = false;
@@ -2236,6 +2269,244 @@ function trackFocusRing() {
     lastTrackedRect = rect;
 }
 setInterval(trackFocusRing, (1000 / 60) / 10);
+
+const appDialog = document.getElementById('app-dialog');
+const appDialogTitle = document.getElementById('app-dialog-title');
+const appDialogMessage = document.getElementById('app-dialog-message');
+const appDialogFooter = document.getElementById('app-dialog-footer');
+const appDialogBlocked = [document.querySelector('.window'), document.querySelector('.sidebar')];
+let appDialogButtons = [];
+let appDialogCancelValue = null;
+let appDialogResolve = null;
+let appDialogReturnFocus = null;
+
+function showDialog({ title, message, buttons, cancelValue = 'cancel' }) {
+    if (!appDialog) return Promise.resolve(cancelValue);
+    closeDialog(appDialogCancelValue);
+    openDropdownState?.close();
+    appDialogTitle.textContent = title;
+    appDialogMessage.textContent = message;
+    appDialogButtons = buttons.map(({ label, value, featured }) => {
+        const button = document.createElement('button');
+        button.className = featured ? 'app-dialog-button featured' : 'app-dialog-button';
+        button.textContent = label;
+        button.addEventListener('click', () => closeDialog(value));
+        return button;
+    });
+    appDialogFooter.replaceChildren(...appDialogButtons);
+    appDialogCancelValue = cancelValue;
+    appDialogReturnFocus = document.activeElement;
+    appDialogBlocked.forEach(el => el?.setAttribute('inert', ''));
+    appDialog.classList.add('show');
+    const initial = appDialogButtons[buttons.findIndex(b => b.focus)] ?? appDialogButtons[0];
+    initial?.focus({ preventScroll: true });
+    return new Promise(resolve => { appDialogResolve = resolve; });
+}
+
+function closeDialog(value) {
+    if (!appDialogResolve) return;
+    const resolve = appDialogResolve;
+    appDialogResolve = null;
+    appDialog.classList.remove('show');
+    appDialogBlocked.forEach(el => el?.removeAttribute('inert'));
+    appDialogReturnFocus?.focus?.({ preventScroll: true });
+    appDialogReturnFocus = null;
+    resolve(value);
+}
+
+appDialog?.addEventListener('mousedown', (e) => {
+    if (!e.target.closest('.app-dialog-button')) e.preventDefault();
+});
+
+document.addEventListener('keydown', (e) => {
+    if (!appDialogResolve) return;
+    if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        closeDialog(appDialogCancelValue);
+    } else if (e.key === 'Tab') {
+        e.preventDefault();
+        e.stopPropagation();
+        const count = appDialogButtons.length;
+        const index = appDialogButtons.indexOf(document.activeElement);
+        const next = index < 0
+            ? (e.shiftKey ? count - 1 : 0)
+            : (index + (e.shiftKey ? count - 1 : 1)) % count;
+        appDialogButtons[next].focus();
+    }
+}, true);
+
+const TOOLTIP_DELAY = 333;
+const TOOLTIP_OFFSET = 20;
+const TOOLTIP_CENTER_Y = 6;
+const TOOLTIP_EDGE = 4;
+const TOOLTIP_FLIP_MARGIN = 8;
+const TOOLTIP_FOLLOW_MS = 40;
+const TOOLTIP_FLIP_MS = 70;
+const TOOLTIP_FLIP_DURATION = 350;
+const TOOLTIP_FADE_MS = 120;
+
+const tooltip = document.createElement('div');
+tooltip.className = 'tooltip';
+tooltip.setAttribute('popover', 'manual');
+tooltip.setAttribute('role', 'tooltip');
+document.body.appendChild(tooltip);
+
+let tooltipTarget = null;
+let tooltipTimer = null;
+let tooltipHideTimer = null;
+let tooltipFrame = null;
+let tooltipLastFrame = 0;
+let tooltipFlipUntil = 0;
+let tooltipSide = 'right';
+let tooltipVisible = false;
+let tooltipBlocked = false;
+let tooltipDragging = false;
+let tooltipMouseX = 0;
+let tooltipMouseY = 0;
+let tooltipX = 0;
+let tooltipY = 0;
+
+function isSliderTooltip(el) {
+    return el.matches('input[type="range"]') || !!el.querySelector('input[type="range"]');
+}
+
+function tooltipDestination() {
+    const width = tooltip.offsetWidth;
+    const height = tooltip.offsetHeight;
+    const margin = tooltipSide === 'left' ? TOOLTIP_FLIP_MARGIN : 0;
+    const side = tooltipMouseX + TOOLTIP_OFFSET + width <= window.innerWidth - TOOLTIP_EDGE - margin ? 'right' : 'left';
+    if (side !== tooltipSide) {
+        tooltipSide = side;
+        tooltipFlipUntil = performance.now() + TOOLTIP_FLIP_DURATION;
+    }
+    const x = side === 'right' ? tooltipMouseX + TOOLTIP_OFFSET : tooltipMouseX - TOOLTIP_OFFSET - width;
+    const y = Math.min(
+        Math.max(tooltipMouseY + TOOLTIP_CENTER_Y - height / 2, TOOLTIP_EDGE),
+        window.innerHeight - TOOLTIP_EDGE - height
+    );
+    return { x: Math.max(x, TOOLTIP_EDGE), y };
+}
+
+function renderTooltipPosition() {
+    tooltip.style.transform = `translate3d(${tooltipX}px, ${tooltipY}px, 0)`;
+}
+
+function stepTooltip(now) {
+    tooltipFrame = null;
+    if (!tooltipVisible) return;
+    const text = tooltipTarget?.getAttribute('tooltip');
+    if (!text) return hideTooltip();
+    if (tooltip.textContent !== text) tooltip.textContent = text;
+
+    const dt = Math.min(now - tooltipLastFrame, 100);
+    tooltipLastFrame = now;
+    const destination = tooltipDestination();
+    const smoothing = now < tooltipFlipUntil ? TOOLTIP_FLIP_MS : TOOLTIP_FOLLOW_MS;
+    const k = 1 - Math.exp(-dt / smoothing);
+    tooltipX += (destination.x - tooltipX) * k;
+    tooltipY += (destination.y - tooltipY) * k;
+    renderTooltipPosition();
+
+    const settled = Math.abs(destination.x - tooltipX) < 0.1 && Math.abs(destination.y - tooltipY) < 0.1;
+    if (!settled || tooltipDragging) tooltipFrame = requestAnimationFrame(stepTooltip);
+}
+
+function kickTooltip() {
+    if (!tooltipVisible || tooltipFrame !== null) return;
+    tooltipLastFrame = performance.now();
+    tooltipFrame = requestAnimationFrame(stepTooltip);
+}
+
+function showTooltip() {
+    clearTimeout(tooltipTimer);
+    tooltipTimer = null;
+    const text = tooltipTarget?.getAttribute('tooltip');
+    if (!text || tooltipBlocked) return;
+    clearTimeout(tooltipHideTimer);
+    tooltipHideTimer = null;
+    tooltip.textContent = text;
+    if (!tooltip.matches(':popover-open')) tooltip.showPopover();
+    tooltipSide = 'right';
+    const start = tooltipDestination();
+    tooltipFlipUntil = 0;
+    tooltipX = start.x;
+    tooltipY = start.y;
+    renderTooltipPosition();
+    tooltipVisible = true;
+    tooltip.classList.add('show');
+    kickTooltip();
+}
+
+function hideTooltip() {
+    clearTimeout(tooltipTimer);
+    tooltipTimer = null;
+    if (!tooltipVisible) return;
+    tooltipVisible = false;
+    tooltip.classList.remove('show');
+    clearTimeout(tooltipHideTimer);
+    tooltipHideTimer = setTimeout(() => {
+        tooltipHideTimer = null;
+        if (!tooltipVisible && tooltip.matches(':popover-open')) tooltip.hidePopover();
+    }, TOOLTIP_FADE_MS);
+}
+
+function retargetTooltip(target) {
+    hideTooltip();
+    tooltipTarget = target;
+    tooltipBlocked = false;
+    if (target) tooltipTimer = setTimeout(showTooltip, TOOLTIP_DELAY);
+}
+
+function blockTooltip() {
+    hideTooltip();
+    tooltipBlocked = true;
+}
+
+function endTooltipDrag(e) {
+    if (!tooltipDragging) return;
+    tooltipDragging = false;
+    const under = document.elementFromPoint(e.clientX, e.clientY)?.closest('[tooltip]') ?? null;
+    if (under !== tooltipTarget) retargetTooltip(under);
+}
+
+document.addEventListener('pointermove', (e) => {
+    tooltipMouseX = e.clientX;
+    tooltipMouseY = e.clientY;
+    if (tooltipDragging) return kickTooltip();
+    const target = e.target.closest?.('[tooltip]') ?? null;
+    if (target !== tooltipTarget) return retargetTooltip(target);
+    kickTooltip();
+});
+
+document.addEventListener('pointerdown', (e) => {
+    const target = e.target.closest?.('[tooltip]');
+    if (!target || !isSliderTooltip(target)) return blockTooltip();
+    tooltipMouseX = e.clientX;
+    tooltipMouseY = e.clientY;
+    tooltipTarget = target;
+    tooltipBlocked = false;
+    tooltipDragging = true;
+    if (tooltipVisible) kickTooltip();
+    else showTooltip();
+}, true);
+
+document.addEventListener('pointerup', endTooltipDrag, true);
+document.addEventListener('pointercancel', endTooltipDrag, true);
+document.addEventListener('input', kickTooltip, true);
+
+document.addEventListener('mouseout', (e) => {
+    if (e.relatedTarget || tooltipDragging) return;
+    hideTooltip();
+    tooltipTarget = null;
+});
+
+document.addEventListener('keydown', blockTooltip, true);
+document.addEventListener('wheel', blockTooltip, { capture: true, passive: true });
+window.addEventListener('blur', () => {
+    tooltipDragging = false;
+    blockTooltip();
+});
 
 function initCustomDropdown(select, trigger) {
     if (select.dataset.customized) return;
@@ -2871,6 +3142,7 @@ function renderAcActionList() {
         remove.type = 'button';
         remove.className = 'ac-action-remove';
         remove.setAttribute('aria-label', 'Remove action');
+        remove.setAttribute('tooltip', 'Remove action');
         remove.innerHTML = '<svg fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>';
         remove.addEventListener('click', () => removeAcAction(action.id));
         item.appendChild(remove);
@@ -4030,6 +4302,7 @@ function renderEditorList() {
 
         const handle = document.createElement('div');
         handle.className = 'editor-handle';
+        handle.setAttribute('tooltip', 'Drag to reorder');
         handle.innerHTML = '<svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor"><circle cx="2.5" cy="2.5" r="1.5"/><circle cx="7.5" cy="2.5" r="1.5"/><circle cx="2.5" cy="8" r="1.5"/><circle cx="7.5" cy="8" r="1.5"/><circle cx="2.5" cy="13.5" r="1.5"/><circle cx="7.5" cy="13.5" r="1.5"/></svg>';
         handle.addEventListener('pointerdown', (e) => startEditorDrag(e, item));
 
@@ -4084,13 +4357,18 @@ function renderEditorList() {
     });
 }
 
-document.getElementById('s-open-sidebar-editor')?.addEventListener('click', () => {
+const sidebarEditorOpenButton = document.getElementById('s-open-sidebar-editor');
+const sidebarEditorBackButton = document.getElementById('editor-back');
+
+sidebarEditorOpenButton?.addEventListener('click', () => {
     renderEditorList();
     activatePanel('sidebar-editor');
+    sidebarEditorBackButton?.focus({ focusVisible: true });
 });
 
-document.getElementById('editor-back')?.addEventListener('click', () => {
+sidebarEditorBackButton?.addEventListener('click', () => {
     activatePanel('settings');
+    sidebarEditorOpenButton?.focus({ focusVisible: true });
 });
 
 document.getElementById('editor-reset')?.addEventListener('click', () => {

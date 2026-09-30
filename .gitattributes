@@ -13,3 +13,7 @@ Cargo.lock linguist-language=TOML linguist-detectable=true linguist-generated=fa
 
 **/dist/** linguist-vendored=false
 **/src-tauri/** linguist-vendored=false
+
+*.png binary
+*.ico binary
+*.ttf binary

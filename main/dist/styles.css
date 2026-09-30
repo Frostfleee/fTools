@@ -50,7 +50,9 @@
 
 body::after,
 .dropdown-popup::after,
-.warn::after {
+.warn::after,
+.app-dialog::after,
+.tooltip::after {
     content: "";
     position: absolute;
     inset: 0;
@@ -61,7 +63,9 @@ body::after,
 }
 [theme="transparent"]::after,
 [theme="transparent"] .dropdown-popup::after,
-[theme="transparent"] .warn::after {
+[theme="transparent"] .warn::after,
+[theme="transparent"] .app-dialog::after,
+[theme="transparent"] .tooltip::after {
     opacity: 0.5%;
 }
 
@@ -251,7 +255,9 @@ body {
     background-color: #000;
 }
 [theme="transparent"][background-active] .warn,
-[theme="transparent"][background-active] .dropdown-popup {
+[theme="transparent"][background-active] .dropdown-popup,
+[theme="transparent"][background-active] .app-dialog,
+[theme="transparent"][background-active] .tooltip {
     background-color: transparent;
     backdrop-filter: blur(5px);
     -webkit-backdrop-filter: blur(5px);
@@ -568,6 +574,128 @@ body.skip-tab-anim #t-settings.sidebar-button.active i {
 }
 .warn-count.show {
     display: block;
+}
+
+/*——/ Dialog /———————————————————————————————————————————————*/
+
+.app-dialog-overlay {
+    position: fixed;
+    inset: var(--titlebarHeight) 0 0 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: var(--t-dialogBackdrop);
+    visibility: hidden;
+    opacity: 0;
+    z-index: 999;
+    transition: opacity .15s ease, visibility 0s linear .15s;
+}
+.app-dialog-overlay.show {
+    visibility: visible;
+    opacity: 1;
+    transition: opacity .15s ease;
+}
+.app-dialog {
+    width: 360px;
+    border-radius: 8px;
+    border: solid 1px var(--t-dialogBorder);
+    background-color: var(--t-dialogBg);
+    box-shadow: 0 8px 24px #00000040;
+    overflow: hidden;
+    font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+    cursor: default;
+    transform: scale(1.05);
+    transition: transform .2s cubic-bezier(.1, .9, .2, 1);
+}
+.app-dialog-overlay.show .app-dialog {
+    transform: scale(1);
+}
+.app-dialog-content {
+    padding: 18px 24px 20px;
+}
+.app-dialog-title {
+    color: var(--t-contrastColor);
+    font-family: "Segoe UI Variable Display", "Segoe UI", sans-serif;
+    font-size: 20px;
+    font-weight: 600;
+    line-height: 28px;
+    margin-bottom: 10px;
+}
+.app-dialog-message {
+    color: var(--t-mainColor);
+    font-size: 14px;
+    line-height: 20px;
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
+    line-clamp: 3;
+    overflow: hidden;
+}
+.app-dialog-footer {
+    display: flex;
+    gap: 8px;
+    padding: 20px 24px;
+    background-color: var(--t-dialogFooterBg);
+    border-top: solid 1px var(--t-dialogBorder);
+}
+.app-dialog-button {
+    flex: 1 1 0;
+    height: 32px;
+    min-width: 0;
+    padding: 0 8px 2px;
+    border-radius: 5px;
+    border: var(--t-boxBorder);
+    background-color: var(--t-buttonBg);
+    color: var(--t-contrastColor);
+    font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+    font-size: 14px;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color .15s ease;
+}
+.app-dialog-button:hover {
+    background-color: var(--t-buttonHover);
+}
+.app-dialog-button.featured {
+    background-color: var(--t-buttonFeaturedBg);
+    color: var(--t-buttonFeaturedColor);
+}
+.app-dialog-button.featured:hover {
+    background-color: var(--t-buttonFeaturedHover);
+}
+
+/*——/ Tooltip /——————————————————————————————————————————————*/
+
+.tooltip {
+    position: fixed;
+    inset: auto;
+    top: 0;
+    left: 0;
+    margin: 0;
+    padding: 4px 8px;
+    box-sizing: border-box;
+    overflow: visible;
+    border-radius: 4px;
+    border: solid 1px var(--t-tooltipBorder);
+    background-color: var(--t-tooltipBg);
+    box-shadow: 0 2px 8px #00000024;
+    color: var(--t-contrastColor);
+    font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+    font-size: 12px;
+    white-space: nowrap;
+    pointer-events: none;
+    user-select: none;
+    opacity: 0;
+    transition: opacity .12s ease;
+}
+.tooltip.show {
+    opacity: 1;
+}
+@starting-style {
+    .tooltip.show {
+        opacity: 0;
+    }
 }
 
 /*——/ Dropdown /—————————————————————————————————————————————*/

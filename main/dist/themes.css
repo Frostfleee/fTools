@@ -8,6 +8,12 @@
     --t-windowBg: #f1f1f1;
     --t-boxBg: #efefef;
     --t-popupBg: #efefef;
+    --t-dialogBg: #f9f9f9;
+    --t-dialogFooterBg: #ececec;
+    --t-dialogBorder: #cacaca;
+    --t-dialogBackdrop: #0000001f;
+    --t-tooltipBg: #f9f9f9;
+    --t-tooltipBorder: #e0e0e080;
     --t-dropdownBg: #efefef;
     --t-dropdownToggleBg: #efefef;
     --t-settingsButtonToggleBg: #f0f0f0;
@@ -102,6 +108,12 @@
     --t-windowBg: #272727;
     --t-boxBg: #333;
     --t-popupBg: #2e2e2e;
+    --t-dialogBg: #2b2b2b;
+    --t-dialogFooterBg: #202020;
+    --t-dialogBorder: #3a3a3a;
+    --t-dialogBackdrop: #0000004d;
+    --t-tooltipBg: #2c2c2c;
+    --t-tooltipBorder: #1d1d1d80;
     --t-dropdownBg: #2e2e2e;
     --t-dropdownToggleBg: #333;
     --t-settingsButtonToggleBg: #3c3c3c;
@@ -196,6 +208,12 @@
     --t-windowBg: #cccccc07;
     --t-boxBg: #cbcbcb0a;
     --t-popupBg: #3e4144;
+    --t-dialogBg: #3e4144;
+    --t-dialogFooterBg: #35383b;
+    --t-dialogBorder: #bbbbbb26;
+    --t-dialogBackdrop: #0000004d;
+    --t-tooltipBg: #3e4144;
+    --t-tooltipBorder: transparent;
     --t-dropdownBg: #3e4144;
     --t-dropdownToggleBg: #cbcbcb0a;
     --t-settingsButtonToggleBg: #a3a3a30f;
@@ -290,6 +308,12 @@
     --t-windowBg: #fff;
     --t-boxBg: #fff;
     --t-popupBg: #fff;
+    --t-dialogBg: #fff;
+    --t-dialogFooterBg: #fff;
+    --t-dialogBorder: #000;
+    --t-dialogBackdrop: transparent;
+    --t-tooltipBg: #fff;
+    --t-tooltipBorder: #000;
     --t-dropdownBg: #fff;
     --t-dropdownToggleBg: #fff;
     --t-settingsButtonToggleBg: #fff;
@@ -384,6 +408,12 @@
     --t-windowBg: #000;
     --t-boxBg: #000;
     --t-popupBg: #000;
+    --t-dialogBg: #000;
+    --t-dialogFooterBg: #000;
+    --t-dialogBorder: #fff;
+    --t-dialogBackdrop: transparent;
+    --t-tooltipBg: #000;
+    --t-tooltipBorder: #fff;
     --t-dropdownBg: #000;
     --t-dropdownToggleBg: #000;
     --t-settingsButtonToggleBg: #000;
@@ -475,10 +505,14 @@
     --t-windowTitleMinimizeHover: #000;
     --t-mainColor: #000;
     --t-contrastColor: #000;
+    --t-tooltipBorder: #bbbbbb80;
     --t-placeholderColor: #000;
     --t-checkboxBorder: #13131370;
     --t-sliderBorder: #131313a0;
     --t-sliderKnob: #131313a0;
+    --t-dialogFooterBg: #0000000d;
+    --t-dialogBorder: #0000001f;
+    --t-dialogBackdrop: #0000001f;
 }
 
 [theme="transparent"][background-active][bg-brightness="dark"] {
@@ -488,5 +522,9 @@
     --t-windowTitleMinimizeHover: #fff;
     --t-mainColor: #eee;
     --t-contrastColor: #fff;
+    --t-tooltipBorder: #bbbbbb80;
     --t-placeholderColor: #d0d0d0;
+    --t-dialogFooterBg: #00000026;
+    --t-dialogBorder: #ffffff1a;
+    --t-dialogBackdrop: #0000004d;
 }

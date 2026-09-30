@@ -199,6 +199,18 @@ fn inject_exif(bytes: Vec<u8>, ext: &str, exif: img_parts::Bytes) -> Vec<u8> {
 }
 
 #[tauri::command]
+fn existing_output_folder(source_path: String, output_name: String, target_ext: String) -> Option<String> {
+    let source_path = PathBuf::from(source_path);
+    let output_dir = source_path.parent().unwrap_or_else(|| Path::new(""));
+    let output_path = output_dir.join(format!("{output_name}.{}", target_ext.to_lowercase()));
+    if output_path == source_path || !output_path.exists() {
+        return None;
+    }
+    let folder = output_dir.file_name().unwrap_or(output_dir.as_os_str());
+    Some(folder.to_string_lossy().to_string())
+}
+
+#[tauri::command]
 async fn convert_image(
     app: AppHandle,
     source_path: String,
@@ -2334,6 +2346,7 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            existing_output_folder,
             convert_image,
             convert_audio,
             convert_video,
