@@ -570,6 +570,92 @@ body.skip-tab-anim #t-settings.sidebar-button.active i {
     display: block;
 }
 
+/*——/ Save Dialog /——————————————————————————————————————————*/
+
+.save-dialog-overlay {
+    position: fixed;
+    inset: var(--titlebarHeight) 0 0 0;
+    display: flex;
+    justify-content: center;
+    align-items: center;
+    background-color: var(--t-dialogBackdrop);
+    visibility: hidden;
+    opacity: 0;
+    z-index: 999;
+    transition: opacity .15s ease, visibility 0s linear .15s;
+}
+.save-dialog-overlay.show {
+    visibility: visible;
+    opacity: 1;
+    transition: opacity .15s ease;
+}
+.save-dialog {
+    width: 360px;
+    border-radius: 8px;
+    border: solid 1px var(--t-dialogBorder);
+    background-color: var(--t-dialogBg);
+    box-shadow: 0 8px 24px #00000040;
+    overflow: hidden;
+    font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+    cursor: default;
+    transform: scale(1.05);
+    transition: transform .2s cubic-bezier(.1, .9, .2, 1);
+}
+.save-dialog-overlay.show .save-dialog {
+    transform: scale(1);
+}
+.save-dialog-content {
+    padding: 20px 24px 22px;
+}
+.save-dialog-title {
+    color: var(--t-contrastColor);
+    font-family: "Segoe UI Variable Display", "Segoe UI", sans-serif;
+    font-size: 20px;
+    font-weight: 600;
+    line-height: 28px;
+    margin-bottom: 10px;
+}
+.save-dialog-message {
+    color: var(--t-mainColor);
+    font-size: 14px;
+    line-height: 20px;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+}
+.save-dialog-footer {
+    display: flex;
+    gap: 8px;
+    padding: 22px 24px;
+    background-color: var(--t-dialogFooterBg);
+    border-top: solid 1px var(--t-dialogBorder);
+}
+.save-dialog-button {
+    flex: 1 1 0;
+    height: 32px;
+    min-width: 0;
+    padding: 0 8px 2px;
+    border-radius: 5px;
+    border: var(--t-boxBorder);
+    background-color: var(--t-buttonBg);
+    color: var(--t-contrastColor);
+    font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+    font-size: 14px;
+    white-space: nowrap;
+    cursor: pointer;
+    transition: background-color .15s ease;
+}
+.save-dialog-button:hover {
+    background-color: var(--t-buttonHover);
+}
+.save-dialog-button.featured {
+    background-color: var(--t-buttonFeaturedBg);
+    color: var(--t-buttonFeaturedColor);
+}
+.save-dialog-button.featured:hover {
+    background-color: var(--t-buttonFeaturedHover);
+}
+
 /*——/ Dropdown /—————————————————————————————————————————————*/
 
 select.dropdown {

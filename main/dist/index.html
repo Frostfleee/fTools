@@ -421,6 +421,20 @@
             </div>
         </div>
 
+        <div class="save-dialog-overlay" id="save-dialog">
+            <div class="save-dialog" role="dialog" aria-modal="true" aria-labelledby="save-dialog-title" aria-describedby="save-dialog-message">
+                <div class="save-dialog-content">
+                    <div class="save-dialog-title" id="save-dialog-title">Do you want to save your work?</div>
+                    <div class="save-dialog-message" id="save-dialog-message">There are unsaved changes in “<span id="save-dialog-file">Untitled</span>”.</div>
+                </div>
+                <div class="save-dialog-footer">
+                    <button class="save-dialog-button featured" data-choice="save">Save</button>
+                    <button class="save-dialog-button" data-choice="discard">Don't save</button>
+                    <button class="save-dialog-button" data-choice="cancel">Cancel</button>
+                </div>
+            </div>
+        </div>
+
         <div id="loading-screen">
             <img class="loading-img" src="icons/icon.png"/>
             <div class="loading-bar">

@@ -4168,3 +4168,61 @@ setupSettingsPanel().then((panelId) => {
         document.body.toggleAttribute('window-focused', focused);
     });
 })();
+
+const saveDialog = document.getElementById('save-dialog');
+const saveDialogFile = document.getElementById('save-dialog-file');
+const saveDialogButtons = saveDialog ? [...saveDialog.querySelectorAll('.save-dialog-button')] : [];
+const saveDialogBlocked = [document.querySelector('.window'), document.querySelector('.sidebar')];
+let saveDialogResolve = null;
+let saveDialogReturnFocus = null;
+
+function showSaveDialog(fileName = 'Untitled') {
+    if (!saveDialog) return Promise.resolve('cancel');
+    closeSaveDialog('cancel');
+    openDropdownState?.close();
+    saveDialogFile.textContent = fileName;
+    saveDialogReturnFocus = document.activeElement;
+    saveDialogBlocked.forEach(el => el?.setAttribute('inert', ''));
+    saveDialog.classList.add('show');
+    saveDialogButtons[0]?.focus({ preventScroll: true });
+    return new Promise(resolve => { saveDialogResolve = resolve; });
+}
+
+function closeSaveDialog(choice) {
+    if (!saveDialogResolve) return;
+    const resolve = saveDialogResolve;
+    saveDialogResolve = null;
+    saveDialog.classList.remove('show');
+    saveDialogBlocked.forEach(el => el?.removeAttribute('inert'));
+    saveDialogReturnFocus?.focus?.({ preventScroll: true });
+    saveDialogReturnFocus = null;
+    resolve(choice);
+}
+
+saveDialogButtons.forEach(button => {
+    button.addEventListener('click', () => closeSaveDialog(button.dataset.choice));
+});
+
+saveDialog?.addEventListener('mousedown', (e) => {
+    if (!e.target.closest('.save-dialog-button')) e.preventDefault();
+});
+
+document.addEventListener('keydown', (e) => {
+    if (!saveDialogResolve) return;
+    if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        closeSaveDialog('cancel');
+    } else if (e.key === 'Tab') {
+        e.preventDefault();
+        e.stopPropagation();
+        const count = saveDialogButtons.length;
+        const index = saveDialogButtons.indexOf(document.activeElement);
+        const next = index < 0
+            ? (e.shiftKey ? count - 1 : 0)
+            : (index + (e.shiftKey ? count - 1 : 1)) % count;
+        saveDialogButtons[next].focus();
+    }
+}, true);
+
+showSaveDialog().then(choice => console.log('Save dialog choice:', choice));
