@@ -1110,14 +1110,14 @@ function setupMediaPanel() {
         return path.split(/[\\/]/).pop();
     }
 
-    const audioToVideoTargets = { aac: ['mp4', 'mov'] };
+    const extraVideoTargets = { gif: ['mp4', 'mov', 'mkv', 'webm'] };
 
     function applySourceRestrictions(ext) {
         panel.querySelectorAll('#video option[data-source-locked]').forEach(opt => {
             opt.disabled = false;
             delete opt.dataset.sourceLocked;
         });
-        const allowed = audioToVideoTargets[ext];
+        const allowed = extraVideoTargets[ext];
         if (!allowed) return;
         panel.querySelectorAll('#video option').forEach(opt => {
             if (!opt.disabled && !allowed.includes(opt.value)) {
@@ -1145,7 +1145,7 @@ function setupMediaPanel() {
         optgroups.forEach(group => {
             const keepEnabled = group === matchingGroup
                 || (matchingGroup.id === 'video' && group.id === 'audio')
-                || (group.id === 'video' && ext in audioToVideoTargets);
+                || (group.id === 'video' && ext in extraVideoTargets);
             group.disabled = !keepEnabled;
         });
 
@@ -1305,7 +1305,7 @@ function setupMediaPanel() {
 
         const targetGroup = dropdown.selectedOptions[0]?.closest('optgroup')?.id;
         const effectiveKind = mediaKind === 'video' && targetGroup === 'audio' ? 'audio'
-            : mediaKind === 'audio' && targetGroup === 'video' ? 'video'
+            : mediaKind === 'image' && targetGroup === 'video' ? 'video'
             : mediaKind;
 
         if (effectiveKind !== 'image' && effectiveKind !== 'audio' && effectiveKind !== 'video') {

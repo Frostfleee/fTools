@@ -32,10 +32,6 @@ fn fits(codec: &Codec, target: Target) -> bool {
     }
 }
 
-pub fn needs_transcode(tracks: &[Track], target: Target) -> bool {
-    tracks.iter().any(|t| !fits(&t.codec, target))
-}
-
 pub fn prepare<'a>(
     tracks: Vec<Track<'a>>,
     target: Target,
@@ -70,10 +66,10 @@ fn thread_count() -> u32 {
     std::thread::available_parallelism().map(|n| n.get() as u32).unwrap_or(4).min(16)
 }
 
-struct Picture {
-    width: usize,
-    height: usize,
-    i420: Vec<u8>,
+pub struct Picture {
+    pub width: usize,
+    pub height: usize,
+    pub i420: Vec<u8>,
 }
 
 fn pack_even(width: usize, height: usize, planes: [(&[u8], usize); 3]) -> Picture {
@@ -217,19 +213,19 @@ impl VideoDecoder {
     }
 }
 
-struct EncodedPacket {
+pub struct EncodedPacket {
     pts_ms: i64,
     keyframe: bool,
     data: Vec<u8>,
 }
 
-enum VideoEncoder {
+pub enum VideoEncoder {
     Vp9(vpx::Vp9Encoder),
     H264 { encoder: H264Encoder, sps: Option<Vec<u8>>, pps: Option<Vec<u8>> },
 }
 
 impl VideoEncoder {
-    fn new(target: Target, width: usize, height: usize, bitrate_bps: u64, fps: f32) -> Result<Self, String> {
+    pub fn new(target: Target, width: usize, height: usize, bitrate_bps: u64, fps: f32) -> Result<Self, String> {
         match target {
             Target::WebM => {
                 let kbps = (bitrate_bps / 1000).clamp(200, 20_000) as u32;
@@ -252,7 +248,7 @@ impl VideoEncoder {
         }
     }
 
-    fn encode(&mut self, picture: Picture, pts_ms: i64, duration_ms: u64) -> Result<Vec<EncodedPacket>, String> {
+    pub fn encode(&mut self, picture: Picture, pts_ms: i64, duration_ms: u64) -> Result<Vec<EncodedPacket>, String> {
         match self {
             VideoEncoder::Vp9(encoder) => Ok(encoder
                 .encode_frame(pts_ms, duration_ms, &picture.i420)?
@@ -319,8 +315,12 @@ impl VideoEncoder {
     }
 }
 
-fn transcode_video(t: &Track, target: Target, progress: &dyn Fn(usize)) -> Result<Track<'static>, String> {
-    let mut decoder = VideoDecoder::new(&t.codec)?;
+pub struct FrameTiming {
+    pub base_ns: i64,
+    pub frame_ms: f64,
+}
+
+pub fn video_timing(t: &Track) -> (FrameTiming, Vec<i64>) {
     let base_ns = t.samples.iter().map(|s| s.pts_ns).min().unwrap_or(0);
     let mut times: Vec<i64> = t.samples.iter().map(|s| (s.pts_ns - base_ns + 500_000) / 1_000_000).collect();
     times.sort_unstable();
@@ -331,23 +331,21 @@ fn transcode_video(t: &Track, target: Target, progress: &dyn Fn(usize)) -> Resul
     }
     let n = times.len();
     let frame_ms = if n >= 2 { ((times[n - 1] - times[0]) as f64 / (n - 1) as f64).max(1.0) } else { 33.0 };
-    let fps = (1000.0 / frame_ms) as f32;
-    let bitrate = match target {
-        Target::WebM => t.bitrate_bps() * 4 / 5,
-        Target::Mp4 => t.bitrate_bps() * 3 / 2,
-    };
+    (FrameTiming { base_ns, frame_ms }, times)
+}
 
-    let mut encoder: Option<VideoEncoder> = None;
+pub fn for_each_frame(
+    t: &Track,
+    progress: &dyn Fn(usize),
+    mut sink: impl FnMut(Picture, i64, u64) -> Result<(), String>,
+) -> Result<FrameTiming, String> {
+    let mut decoder = VideoDecoder::new(&t.codec)?;
+    let (timing, times) = video_timing(t);
     let mut size: Option<(usize, usize)> = None;
-    let mut packets: Vec<EncodedPacket> = Vec::new();
     let mut shown = 0usize;
     let mut pictures: Vec<Picture> = Vec::new();
 
-    let mut encode_pictures = |pictures: &mut Vec<Picture>,
-                               encoder: &mut Option<VideoEncoder>,
-                               packets: &mut Vec<EncodedPacket>,
-                               shown: &mut usize|
-     -> Result<(), String> {
+    let mut deliver = |pictures: &mut Vec<Picture>, shown: &mut usize| -> Result<(), String> {
         for picture in pictures.drain(..) {
             if picture.width == 0 || picture.height == 0 {
                 continue;
@@ -356,33 +354,41 @@ fn transcode_video(t: &Track, target: Target, progress: &dyn Fn(usize)) -> Resul
             if (picture.width, picture.height) != (w, h) {
                 return Err("This video changes resolution midway, which isn't supported yet.".to_string());
             }
-            if encoder.is_none() {
-                *encoder = Some(VideoEncoder::new(target, w, h, bitrate, fps)?);
-            }
-            let pts = times.get(*shown).copied().unwrap_or_else(|| times.last().copied().unwrap_or(0) + (*shown as f64 * frame_ms) as i64);
-            let next = times.get(*shown + 1).copied().unwrap_or(pts + frame_ms.round() as i64);
+            let extra = (*shown + 1).saturating_sub(times.len()) as f64;
+            let fallback = times.last().copied().unwrap_or(0) + (extra * timing.frame_ms).round() as i64;
+            let pts = times.get(*shown).copied().unwrap_or(fallback);
+            let next = times.get(*shown + 1).copied().unwrap_or(pts + timing.frame_ms.round() as i64);
             *shown += 1;
-            packets.extend(encoder.as_mut().unwrap().encode(picture, pts, (next - pts).max(1) as u64)?);
+            sink(picture, pts, (next - pts).max(1) as u64)?;
         }
         Ok(())
     };
 
     for (i, sample) in t.samples.iter().enumerate() {
         decoder.decode(sample, i == 0, &mut pictures)?;
-        encode_pictures(&mut pictures, &mut encoder, &mut packets, &mut shown)?;
+        deliver(&mut pictures, &mut shown)?;
         if i % 8 == 0 {
             progress(i);
         }
     }
     decoder.finish(&mut pictures)?;
-    encode_pictures(&mut pictures, &mut encoder, &mut packets, &mut shown)?;
+    deliver(&mut pictures, &mut shown)?;
+    if shown == 0 {
+        return Err("No video frames could be decoded from this file.".to_string());
+    }
+    progress(t.samples.len());
+    Ok(timing)
+}
 
-    let mut encoder = encoder.ok_or_else(|| "No video frames could be decoded from this file.".to_string())?;
+pub fn encoded_video_track(
+    mut encoder: VideoEncoder,
+    mut packets: Vec<EncodedPacket>,
+    width: usize,
+    height: usize,
+    base_ns: i64,
+) -> Result<Track<'static>, String> {
     let (tail, codec) = encoder.finish()?;
     packets.extend(tail);
-    let (width, height) = size.unwrap_or((0, 0));
-    progress(t.samples.len());
-
     Ok(Track {
         video: true,
         codec,
@@ -396,6 +402,28 @@ fn transcode_video(t: &Track, target: Target, progress: &dyn Fn(usize)) -> Resul
             .map(|p| Sample { pts_ns: base_ns + p.pts_ms * 1_000_000, keyframe: p.keyframe, data: Cow::Owned(p.data) })
             .collect(),
     })
+}
+
+fn transcode_video(t: &Track, target: Target, progress: &dyn Fn(usize)) -> Result<Track<'static>, String> {
+    let (timing, _) = video_timing(t);
+    let fps = (1000.0 / timing.frame_ms) as f32;
+    let bitrate = match target {
+        Target::WebM => t.bitrate_bps() * 4 / 5,
+        Target::Mp4 => t.bitrate_bps() * 3 / 2,
+    };
+    let mut encoder: Option<VideoEncoder> = None;
+    let mut size = (0usize, 0usize);
+    let mut packets: Vec<EncodedPacket> = Vec::new();
+    let timing = for_each_frame(t, progress, |picture, pts, duration| {
+        if encoder.is_none() {
+            size = (picture.width, picture.height);
+            encoder = Some(VideoEncoder::new(target, picture.width, picture.height, bitrate, fps)?);
+        }
+        packets.extend(encoder.as_mut().unwrap().encode(picture, pts, duration)?);
+        Ok(())
+    })?;
+    let encoder = encoder.ok_or_else(|| "No video frames could be decoded from this file.".to_string())?;
+    encoded_video_track(encoder, packets, size.0, size.1, timing.base_ns)
 }
 
 fn vorbis_extra_data(private: &[u8]) -> Result<Vec<u8>, String> {

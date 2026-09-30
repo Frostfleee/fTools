@@ -56,13 +56,10 @@ impl Track<'_> {
     }
 
     pub fn end_ns(&self) -> i64 {
-        let n = self.samples.len();
-        let last = self.samples.iter().map(|s| s.pts_ns).max().unwrap_or(0);
-        let step = if n >= 2 {
-            (last - self.samples.iter().map(|s| s.pts_ns).min().unwrap_or(0)) / (n as i64 - 1)
-        } else {
-            0
-        };
+        let mut times: Vec<i64> = self.samples.iter().map(|s| s.pts_ns).collect();
+        times.sort_unstable();
+        let last = times.last().copied().unwrap_or(0);
+        let step = if times.len() >= 2 { last - times[times.len() - 2] } else { 0 };
         last + step - self.codec_delay_ns
     }
 
@@ -662,62 +659,7 @@ pub fn read_mp4(raw: &[u8]) -> Result<Vec<Track<'_>>, String> {
     Ok(tracks)
 }
 
-pub const AAC_SAMPLE_RATES: [u32; 13] = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
-
-pub fn read_adts(raw: &[u8]) -> Result<Vec<Track<'_>>, String> {
-    let mut p = 0usize;
-    if raw.len() >= 10 && &raw[..3] == b"ID3" {
-        let size = raw[6..10].iter().fold(0usize, |acc, &b| (acc << 7) | (b & 0x7F) as usize);
-        p = 10 + size + if raw[5] & 0x10 != 0 { 10 } else { 0 };
-    }
-    let mut samples = Vec::new();
-    let mut config: Option<(u8, u8, u8)> = None;
-    while p + 7 <= raw.len() {
-        if raw[p] != 0xFF || raw[p + 1] & 0xF6 != 0xF0 {
-            p += 1;
-            continue;
-        }
-        let protection_absent = raw[p + 1] & 1 == 1;
-        let profile = raw[p + 2] >> 6;
-        let sr_index = (raw[p + 2] >> 2) & 0x0F;
-        let channel_config = ((raw[p + 2] & 1) << 2) | (raw[p + 3] >> 6);
-        let frame_len = (((raw[p + 3] & 3) as usize) << 11) | ((raw[p + 4] as usize) << 3) | (raw[p + 5] as usize >> 5);
-        let blocks = (raw[p + 6] & 3) as usize + 1;
-        let header = if protection_absent { 7 } else { 9 };
-        if sr_index as usize >= AAC_SAMPLE_RATES.len() || frame_len < header || p + frame_len > raw.len() {
-            p += 1;
-            continue;
-        }
-        if blocks != 1 {
-            return Err("This AAC file packs several raw blocks per ADTS frame, which isn't supported yet.".to_string());
-        }
-        config.get_or_insert((profile, sr_index, channel_config));
-        samples.push(&raw[p + header..p + frame_len]);
-        p += frame_len;
-    }
-    let (profile, sr_index, channel_config) =
-        config.ok_or_else(|| "No AAC (ADTS) frames were found in this file.".to_string())?;
-    let sample_rate = AAC_SAMPLE_RATES[sr_index as usize];
-    let asc_bits: u16 = ((profile as u16 + 1) << 11) | ((sr_index as u16) << 7) | ((channel_config as u16) << 3);
-    Ok(vec![Track {
-        video: false,
-        codec: Codec::Aac { asc: asc_bits.to_be_bytes().to_vec() },
-        width: 0,
-        height: 0,
-        sample_rate,
-        channels: channel_config.max(1) as u16,
-        codec_delay_ns: 0,
-        samples: samples
-            .into_iter()
-            .enumerate()
-            .map(|(i, data)| Sample {
-                pts_ns: (i as i128 * 1024 * 1_000_000_000 / sample_rate as i128) as i64,
-                keyframe: true,
-                data: Cow::Borrowed(data),
-            })
-            .collect(),
-    }])
-}
+const AAC_SAMPLE_RATES: [u32; 13] = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
 
 struct BitReader<'a> {
     data: &'a [u8],
@@ -872,7 +814,7 @@ mod tests {
     }
 
     #[test]
-    fn adts_round_trip() {
+    fn adts_headers() {
         let track = Track {
             video: false,
             codec: Codec::Aac { asc: vec![0x11, 0x90, 0x56, 0xE5, 0x00] },
@@ -887,11 +829,10 @@ mod tests {
             ],
         };
         let adts = write_adts(&track).unwrap();
-        let back = read_adts(&adts).unwrap();
-        assert_eq!(back[0].codec, Codec::Aac { asc: vec![0x11, 0x90] });
-        assert_eq!((back[0].sample_rate, back[0].channels), (48000, 2));
-        assert_eq!(back[0].samples.iter().map(|s| s.data.len()).collect::<Vec<_>>(), vec![300, 9]);
-        assert_eq!(back[0].samples[1].pts_ns, 21_333_333);
+        assert_eq!(adts.len(), 300 + 9 + 14);
+        assert_eq!(&adts[..7], &[0xFF, 0xF1, 0x4C, 0x80, 0x26, 0x7F, 0xFC]);
+        assert_eq!(&adts[307..314], &[0xFF, 0xF1, 0x4C, 0x80, 0x02, 0x1F, 0xFC]);
         assert_eq!(adts_params(&[0x2B, 0x92, 0x08, 0x00]), Some((1, 7, 2)));
+        assert_eq!(adts_params(&[0xF9, 0x48, 0x80]), None);
     }
 }

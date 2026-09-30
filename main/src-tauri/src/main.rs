@@ -1,5 +1,6 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod animation;
 mod demux;
 mod ebml;
 mod matroska;
@@ -1743,7 +1744,6 @@ fn read_container<'a>(raw: &'a [u8], ext: &str) -> Result<Vec<demux::Track<'a>>,
     match ext {
         "mkv" | "webm" => demux::read_matroska(raw),
         "mp4" | "mov" | "m4a" => demux::read_mp4(raw),
-        "aac" => demux::read_adts(raw),
         other => Err(format!("Reading .{other} files isn't supported here.")),
     }
 }
@@ -1755,6 +1755,37 @@ fn encode_aac_for_mux(samples: &[f32], sample_rate: u32, channels: u16) -> Resul
         .and_then(|_| fs::read(&temp).map_err(|e| format!("Couldn't read the encoded audio back: {e}")));
     let _ = fs::remove_file(&temp);
     result
+}
+
+fn write_output(output_path: &Path, write: impl FnOnce(&mut std::io::BufWriter<fs::File>) -> Result<(), String>) -> Result<(), String> {
+    let file = fs::File::create(output_path).map_err(|e| format!("Couldn't create the output file: {e}"))?;
+    let mut writer = std::io::BufWriter::new(file);
+    let result = write(&mut writer).and_then(|_| writer.flush().map_err(|e| format!("Couldn't write the output file: {e}")));
+    drop(writer);
+    if result.is_err() {
+        let _ = fs::remove_file(output_path);
+    }
+    result
+}
+
+fn convert_to_gif(source_path: &Path, output_path: &Path, source_ext: &str, report: &dyn Fn(u8)) -> Result<(), String> {
+    let raw = fs::read(source_path).map_err(|e| format!("Couldn't read the source file: {e}"))?;
+    let tracks = read_container(&raw, source_ext)?;
+    let total = tracks.iter().find(|t| t.video).map(|t| t.samples.len()).unwrap_or(0).max(1);
+    let progress = |i: usize| report((10 + i * 75 / total).min(85) as u8);
+    write_output(output_path, |w| animation::video_to_gif(&tracks, w, &progress))
+}
+
+fn convert_from_gif(source_path: &Path, output_path: &Path, target_ext: &str) -> Result<(), String> {
+    let raw = fs::read(source_path).map_err(|e| format!("Couldn't read the source file: {e}"))?;
+    let target = if target_ext == "webm" { transcode::Target::WebM } else { transcode::Target::Mp4 };
+    let track = animation::gif_to_video(&raw, target)?;
+    let tracks = [track];
+    write_output(output_path, |w| match target_ext {
+        "mp4" | "mov" => mp4::write(&tracks, w),
+        "webm" => matroska::write(&tracks, true, w),
+        _ => matroska::write(&tracks, false, w),
+    })
 }
 
 fn convert_container(
@@ -1775,19 +1806,11 @@ fn convert_container(
         _ => tracks,
     };
 
-    let file = fs::File::create(output_path).map_err(|e| format!("Couldn't create the output file: {e}"))?;
-    let mut writer = std::io::BufWriter::new(file);
-    let result = match target_ext {
-        "mp4" | "mov" => mp4::write(&tracks, &mut writer),
-        "webm" => matroska::write(&tracks, true, &mut writer),
-        _ => matroska::write(&tracks, false, &mut writer),
-    }
-    .and_then(|_| writer.flush().map_err(|e| format!("Couldn't write the output file: {e}")));
-    drop(writer);
-    if result.is_err() {
-        let _ = fs::remove_file(output_path);
-    }
-    result
+    write_output(output_path, |w| match target_ext {
+        "mp4" | "mov" => mp4::write(&tracks, w),
+        "webm" => matroska::write(&tracks, true, w),
+        _ => matroska::write(&tracks, false, w),
+    })
 }
 
 fn extract_aac(source_path: &Path, source_ext: &str) -> Option<Vec<u8>> {
@@ -1823,13 +1846,12 @@ async fn convert_video(
 
     let mf_pair = matches!(source_ext.as_str(), "mp4" | "mov") && matches!(target_ext.as_str(), "mp4" | "mov");
     let mf_to_mkv = matches!(source_ext.as_str(), "mp4" | "mov") && target_ext == "mkv";
-    let native = match (source_ext.as_str(), target_ext.as_str()) {
-        ("aac", "mp4" | "mov") => true,
-        ("mp4" | "mov" | "mkv" | "webm", "mp4" | "mov" | "mkv" | "webm") => source_ext != target_ext,
-        _ => false,
-    };
+    let is_video = |ext: &str| matches!(ext, "mp4" | "mov" | "mkv" | "webm");
+    let native = is_video(&source_ext) && is_video(&target_ext) && source_ext != target_ext;
+    let to_gif = is_video(&source_ext) && target_ext == "gif";
+    let from_gif = source_ext == "gif" && is_video(&target_ext);
 
-    if !mf_pair && !mf_to_mkv && !native {
+    if !mf_pair && !mf_to_mkv && !native && !to_gif && !from_gif {
         return Err(format!(
             "Converting \"{}\" to \"{}\" isn't supported yet.",
             source_ext, target_ext
@@ -1845,6 +1867,10 @@ async fn convert_video(
         remux_video_container(&source_path, &output_path, &target_ext)?;
     } else if mf_to_mkv {
         remux_container_to_mkv(&source_path, &output_path)?;
+    } else if to_gif {
+        convert_to_gif(&source_path, &output_path, &source_ext, &report)?;
+    } else if from_gif {
+        convert_from_gif(&source_path, &output_path, &target_ext)?;
     } else {
         convert_container(&source_path, &output_path, &source_ext, &target_ext, &report)?;
     }

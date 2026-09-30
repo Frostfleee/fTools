@@ -58,6 +58,7 @@ main/
     │   ├── mp4.rs                MP4/MOV writer
     │   ├── matroska.rs           MKV/WebM writer (with Cues for seeking)
     │   ├── transcode.rs          Copies or re-encodes each track to fit the target container
+    │   ├── animation.rs          Video to animated GIF and animated GIF to video
     │   └── vpx.rs                Hand-written libvpx FFI bindings (VP8/VP9 decode, VP9 encode)
     ├── Cargo.toml                Rust dependencies
     ├── tauri.conf.json           App, window, and bundle configuration
