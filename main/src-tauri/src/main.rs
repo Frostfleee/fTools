@@ -1,7 +1,10 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
+mod demux;
 mod ebml;
+mod matroska;
 mod mp4;
+mod transcode;
 mod vpx;
 
 use std::fs;
@@ -1168,23 +1171,29 @@ async fn convert_audio(
 
     report(5);
 
-    let (samples, sample_rate, channels) = decode_to_pcm(&source_path)?;
-
-    report(50);
-
     let output_dir = source_path.parent().unwrap_or_else(|| Path::new(""));
     let output_path = output_dir.join(format!("{output_name}.{target_ext}"));
+    let source_ext = source_path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
 
-    match target_ext.as_str() {
-        "wav" => encode_wav(&samples, sample_rate, channels, &output_path)?,
-        "aiff" => encode_aiff(&samples, sample_rate, channels, &output_path)?,
-        "flac" => encode_flac(&samples, sample_rate, channels, &output_path)?,
-        "mp3" => encode_mp3(&samples, sample_rate, channels, &output_path)?,
-        "ogg" => encode_ogg_vorbis(&samples, sample_rate, channels, &output_path)?,
-        "opus" => encode_opus(&samples, sample_rate, channels, &output_path)?,
-        "m4a" => encode_m4a(&samples, sample_rate, channels, &output_path)?,
-        "aac" => encode_aac(&samples, sample_rate, channels, &output_path)?,
-        _ => unreachable!(),
+    let extracted = if target_ext == "aac" { extract_aac(&source_path, &source_ext) } else { None };
+    if let Some(adts) = extracted {
+        fs::write(&output_path, adts).map_err(|e| format!("Couldn't write the output file: {e}"))?;
+    } else {
+        let (samples, sample_rate, channels) = decode_to_pcm(&source_path)?;
+
+        report(50);
+
+        match target_ext.as_str() {
+            "wav" => encode_wav(&samples, sample_rate, channels, &output_path)?,
+            "aiff" => encode_aiff(&samples, sample_rate, channels, &output_path)?,
+            "flac" => encode_flac(&samples, sample_rate, channels, &output_path)?,
+            "mp3" => encode_mp3(&samples, sample_rate, channels, &output_path)?,
+            "ogg" => encode_ogg_vorbis(&samples, sample_rate, channels, &output_path)?,
+            "opus" => encode_opus(&samples, sample_rate, channels, &output_path)?,
+            "m4a" => encode_m4a(&samples, sample_rate, channels, &output_path)?,
+            "aac" => encode_aac(&samples, sample_rate, channels, &output_path)?,
+            _ => unreachable!(),
+        }
     }
 
     report(85);
@@ -1205,13 +1214,6 @@ async fn convert_audio(
     .map_err(|e| format!("Conversion task panicked: {e}"))?
 }
 
-
-fn is_webm_legal_codec(codec_id: &str) -> bool {
-    matches!(
-        codec_id,
-        "V_VP8" | "V_VP9" | "V_AV1" | "A_VORBIS" | "A_OPUS"
-    )
-}
 
 fn mkv_codec_from_mf(
     major_type: &windows::core::GUID,
@@ -1354,132 +1356,6 @@ fn build_avcc_from_annexb(extradata: &[u8]) -> Result<Vec<u8>, String> {
         out.extend_from_slice(p);
     }
     Ok(out)
-}
-
-fn remux_matroska(source_path: &Path, output_path: &Path, target_ext: &str) -> Result<(), String> {
-    let raw = fs::read(source_path).map_err(|e| format!("Couldn't read the source file: {e}"))?;
-    let tracks = ebml::parse_tracks(&raw).map_err(|e| {
-        format!("This doesn't look like a valid Matroska/WebM file (couldn't read its Tracks element): {e}")
-    })?;
-
-    if tracks.is_empty() {
-        return Err("No tracks found in this file's Tracks element.".to_string());
-    }
-
-    if target_ext == "webm" {
-        if let Some(bad) = tracks.iter().find(|t| !is_webm_legal_codec(&t.codec_id)) {
-            return Err(format!(
-                "Can't remux to WEBM: this file's \"{}\" track uses {}, which isn't a codec WebM's own spec allows (only VP8/VP9/AV1 video and Vorbis/Opus audio are legal in a .webm file). Turning this into real WEBM would require actually re-encoding the video/audio, not just repackaging it, which isn't implemented.",
-                if bad.track_type == 1 { "video" } else { "audio" },
-                bad.codec_id
-            ));
-        }
-    }
-
-    let file = fs::File::open(source_path).map_err(|e| format!("Couldn't open the source file: {e}"))?;
-    let mss = MediaSourceStream::new(Box::new(file), Default::default());
-    let mut hint = Hint::new();
-    if let Some(ext) = source_path.extension().and_then(|e| e.to_str()) {
-        hint.with_extension(ext);
-    }
-    let probed = symphonia::default::get_probe()
-        .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())
-        .map_err(|e| format!("Couldn't parse this file's media structure: {e}"))?;
-    let mut format = probed.format;
-
-    struct Pkt { track_number: u64, ts_ms: i64, data: Vec<u8> }
-    let mut packets: Vec<Pkt> = Vec::new();
-    loop {
-        match format.next_packet() {
-            Ok(p) => packets.push(Pkt {
-                track_number: p.track_id() as u64,
-                ts_ms: p.ts() as i64,
-                data: p.data.to_vec(),
-            }),
-            Err(SymphoniaError::IoError(_)) => break,
-            Err(SymphoniaError::ResetRequired) => break,
-            Err(e) => return Err(format!("Error while reading packets: {e}")),
-        }
-    }
-    if packets.is_empty() {
-        return Err("No decodable packets were found in this file.".to_string());
-    }
-
-    let mut tracks_body = Vec::new();
-    for t in &tracks {
-        let mut te = Vec::new();
-        te.extend(ebml::build_elem(ebml::ID_TRACK_NUMBER, &ebml::uint_body(t.number)));
-        te.extend(ebml::build_elem(ebml::ID_TRACK_UID, &ebml::uint_body(t.number)));
-        te.extend(ebml::build_elem(ebml::ID_TRACK_TYPE, &ebml::uint_body(t.track_type)));
-        te.extend(ebml::build_elem(ebml::ID_CODEC_ID, t.codec_id.as_bytes()));
-        if !t.codec_private.is_empty() {
-            te.extend(ebml::build_elem(ebml::ID_CODEC_PRIVATE, &t.codec_private));
-        }
-        if let Some(d) = t.codec_delay_ns {
-            te.extend(ebml::build_elem(ebml::ID_CODEC_DELAY, &ebml::uint_body(d)));
-        }
-        if let Some(p) = t.seek_preroll_ns {
-            te.extend(ebml::build_elem(ebml::ID_SEEK_PREROLL, &ebml::uint_body(p)));
-        }
-        if let (Some(w), Some(h)) = (t.width, t.height) {
-            let mut video_body = Vec::new();
-            video_body.extend(ebml::build_elem(ebml::ID_PIXEL_WIDTH, &ebml::uint_body(w)));
-            video_body.extend(ebml::build_elem(ebml::ID_PIXEL_HEIGHT, &ebml::uint_body(h)));
-            te.extend(ebml::build_elem(ebml::ID_VIDEO, &video_body));
-        }
-        if let (Some(rate), Some(ch)) = (t.sample_rate, t.channels) {
-            let mut audio_body = Vec::new();
-            audio_body.extend(ebml::build_elem(ebml::ID_SAMPLING_FREQUENCY, &ebml::float_body_f64(rate)));
-            audio_body.extend(ebml::build_elem(ebml::ID_CHANNELS, &ebml::uint_body(ch)));
-            te.extend(ebml::build_elem(ebml::ID_AUDIO, &audio_body));
-        }
-        tracks_body.extend(ebml::build_elem(ebml::ID_TRACK_ENTRY, &te));
-    }
-
-    let total_duration_ms = packets.iter().map(|p| p.ts_ms).max().unwrap_or(0) as f64 + 20.0;
-    let mut info_body = Vec::new();
-    info_body.extend(ebml::build_elem(ebml::ID_TIMESTAMP_SCALE, &ebml::uint_body(1_000_000)));
-    info_body.extend(ebml::build_elem(ebml::ID_DURATION, &ebml::float_body_f64(total_duration_ms)));
-    info_body.extend(ebml::build_elem(ebml::ID_MUXING_APP, b"fTools"));
-    info_body.extend(ebml::build_elem(ebml::ID_WRITING_APP, b"fTools"));
-
-    let mut clusters_body: Vec<u8> = Vec::new();
-    let mut i = 0usize;
-    while i < packets.len() {
-        let cluster_start_ts = packets[i].ts_ms;
-        let mut cluster_body = Vec::new();
-        cluster_body.extend(ebml::build_elem(ebml::ID_TIMESTAMP, &ebml::uint_body(cluster_start_ts.max(0) as u64)));
-        while i < packets.len() && packets[i].ts_ms - cluster_start_ts < 1000 {
-            let rel = (packets[i].ts_ms - cluster_start_ts) as i16;
-            let block = ebml::simple_block_body(packets[i].track_number, rel, true, &packets[i].data);
-            cluster_body.extend(ebml::build_elem(ebml::ID_SIMPLE_BLOCK, &block));
-            i += 1;
-        }
-        clusters_body.extend(ebml::build_elem(ebml::ID_CLUSTER, &cluster_body));
-    }
-
-    let mut segment_body = Vec::new();
-    segment_body.extend(ebml::build_elem(ebml::ID_INFO, &info_body));
-    segment_body.extend(ebml::build_elem(ebml::ID_TRACKS, &tracks_body));
-    segment_body.extend(clusters_body);
-
-    let doctype: &[u8] = if target_ext == "webm" { b"webm" } else { b"matroska" };
-    let mut ebml_header_body = Vec::new();
-    ebml_header_body.extend(ebml::build_elem(ebml::ID_EBML_VERSION, &ebml::uint_body(1)));
-    ebml_header_body.extend(ebml::build_elem(ebml::ID_EBML_READ_VERSION, &ebml::uint_body(1)));
-    ebml_header_body.extend(ebml::build_elem(ebml::ID_EBML_MAX_ID_LENGTH, &ebml::uint_body(4)));
-    ebml_header_body.extend(ebml::build_elem(ebml::ID_EBML_MAX_SIZE_LENGTH, &ebml::uint_body(8)));
-    ebml_header_body.extend(ebml::build_elem(ebml::ID_DOCTYPE, doctype));
-    ebml_header_body.extend(ebml::build_elem(ebml::ID_DOCTYPE_VERSION, &ebml::uint_body(2)));
-    ebml_header_body.extend(ebml::build_elem(ebml::ID_DOCTYPE_READ_VERSION, &ebml::uint_body(2)));
-
-    let mut out = fs::File::create(output_path).map_err(|e| format!("Couldn't create the output file: {e}"))?;
-    out.write_all(&ebml::build_elem(ebml::ID_EBML, &ebml_header_body))
-        .map_err(|e| format!("Couldn't write the output file: {e}"))?;
-    out.write_all(&ebml::build_elem(ebml::ID_SEGMENT, &segment_body))
-        .map_err(|e| format!("Couldn't write the output file: {e}"))?;
-
-    Ok(())
 }
 
 fn remux_video_container(source_path: &Path, output_path: &Path, target_ext: &str) -> Result<(), String> {
@@ -1863,39 +1739,64 @@ fn remux_container_to_mkv(source_path: &Path, output_path: &Path) -> Result<(), 
     Ok(())
 }
 
-fn remux_mkv_to_container(source_path: &Path, output_path: &Path, target_ext: &str) -> Result<(), String> {
+fn read_container<'a>(raw: &'a [u8], ext: &str) -> Result<Vec<demux::Track<'a>>, String> {
+    match ext {
+        "mkv" | "webm" => demux::read_matroska(raw),
+        "mp4" | "mov" | "m4a" => demux::read_mp4(raw),
+        "aac" => demux::read_adts(raw),
+        other => Err(format!("Reading .{other} files isn't supported here.")),
+    }
+}
+
+fn encode_aac_for_mux(samples: &[f32], sample_rate: u32, channels: u16) -> Result<Vec<u8>, String> {
+    let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
+    let temp = std::env::temp_dir().join(format!("ftools_aac_{}_{nanos}.m4a", std::process::id()));
+    let result = encode_m4a(samples, sample_rate, channels, &temp)
+        .and_then(|_| fs::read(&temp).map_err(|e| format!("Couldn't read the encoded audio back: {e}")));
+    let _ = fs::remove_file(&temp);
+    result
+}
+
+fn convert_container(
+    source_path: &Path,
+    output_path: &Path,
+    source_ext: &str,
+    target_ext: &str,
+    report: &dyn Fn(u8),
+) -> Result<(), String> {
     let raw = fs::read(source_path).map_err(|e| format!("Couldn't read the source file: {e}"))?;
-    let tracks = ebml::parse_tracks(&raw).map_err(|e| {
-        format!("This doesn't look like a valid Matroska file (couldn't read its Tracks element): {e}")
-    })?;
+    let tracks = read_container(&raw, source_ext)?;
     if tracks.is_empty() {
-        return Err("No tracks found in this file's Tracks element.".to_string());
+        return Err("No audio or video tracks were found in this file.".to_string());
     }
-    for t in &tracks {
-        if t.codec_id == "V_MPEGH/ISO/HEVC" {
-            return Err("Reading HEVC (H.265) back out of an MKV isn't supported yet, only H.264. Tell me if you need this and I'll add proper hvcC handling.".to_string());
-        }
-        let ok = matches!(t.codec_id.as_str(), "V_MPEG4/ISO/AVC" | "A_AAC" | "A_MPEG/L3");
-        if !ok {
-            return Err(format!(
-                "Can't remux to {}: this file's \"{}\" track uses {}, which {} can't hold without re-encoding.",
-                target_ext.to_uppercase(),
-                if t.track_type == 1 { "video" } else { "audio" },
-                t.codec_id,
-                target_ext.to_uppercase()
-            ));
-        }
-    }
+    let tracks = match target_ext {
+        "webm" => transcode::prepare(tracks, transcode::Target::WebM, &encode_aac_for_mux, report)?,
+        "mp4" | "mov" => transcode::prepare(tracks, transcode::Target::Mp4, &encode_aac_for_mux, report)?,
+        _ => tracks,
+    };
 
     let file = fs::File::create(output_path).map_err(|e| format!("Couldn't create the output file: {e}"))?;
     let mut writer = std::io::BufWriter::new(file);
-    let result = mp4::write_from_mkv(&raw, &tracks, &mut writer)
-        .and_then(|_| writer.flush().map_err(|e| format!("Couldn't write the output file: {e}")));
+    let result = match target_ext {
+        "mp4" | "mov" => mp4::write(&tracks, &mut writer),
+        "webm" => matroska::write(&tracks, true, &mut writer),
+        _ => matroska::write(&tracks, false, &mut writer),
+    }
+    .and_then(|_| writer.flush().map_err(|e| format!("Couldn't write the output file: {e}")));
     drop(writer);
     if result.is_err() {
         let _ = fs::remove_file(output_path);
     }
     result
+}
+
+fn extract_aac(source_path: &Path, source_ext: &str) -> Option<Vec<u8>> {
+    if !matches!(source_ext, "mp4" | "mov" | "m4a" | "mkv" | "webm") {
+        return None;
+    }
+    let raw = fs::read(source_path).ok()?;
+    let tracks = read_container(&raw, source_ext).ok()?;
+    tracks.iter().filter(|t| !t.video).find_map(demux::write_adts)
 }
 
 #[tauri::command]
@@ -1921,14 +1822,16 @@ async fn convert_video(
         .unwrap_or_default();
 
     let mf_pair = matches!(source_ext.as_str(), "mp4" | "mov") && matches!(target_ext.as_str(), "mp4" | "mov");
-    let matroska_pair =
-        matches!(source_ext.as_str(), "mkv" | "webm") && matches!(target_ext.as_str(), "mkv" | "webm");
-    let to_mkv = matches!(source_ext.as_str(), "mp4" | "mov") && target_ext == "mkv";
-    let from_mkv = source_ext == "mkv" && matches!(target_ext.as_str(), "mp4" | "mov");
+    let mf_to_mkv = matches!(source_ext.as_str(), "mp4" | "mov") && target_ext == "mkv";
+    let native = match (source_ext.as_str(), target_ext.as_str()) {
+        ("aac", "mp4" | "mov") => true,
+        ("mp4" | "mov" | "mkv" | "webm", "mp4" | "mov" | "mkv" | "webm") => source_ext != target_ext,
+        _ => false,
+    };
 
-    if !mf_pair && !matroska_pair && !to_mkv && !from_mkv {
+    if !mf_pair && !mf_to_mkv && !native {
         return Err(format!(
-            "Converting \"{}\" to \"{}\" isn't supported yet. MP4 and MOV convert to each other, MKV and WEBM convert to each other, and MP4/MOV convert to/from MKV (when the source's codec is legal in the target container), but converting to or from WEBM outside the MKV/WEBM pair needs real video/audio transcoding, which isn't implemented.",
+            "Converting \"{}\" to \"{}\" isn't supported yet.",
             source_ext, target_ext
         ));
     }
@@ -1938,14 +1841,12 @@ async fn convert_video(
     let output_dir = source_path.parent().unwrap_or_else(|| Path::new(""));
     let output_path = output_dir.join(format!("{output_name}.{target_ext}"));
 
-    if matroska_pair {
-        remux_matroska(&source_path, &output_path, &target_ext)?;
-    } else if to_mkv {
-        remux_container_to_mkv(&source_path, &output_path)?;
-    } else if from_mkv {
-        remux_mkv_to_container(&source_path, &output_path, &target_ext)?;
-    } else {
+    if mf_pair {
         remux_video_container(&source_path, &output_path, &target_ext)?;
+    } else if mf_to_mkv {
+        remux_container_to_mkv(&source_path, &output_path)?;
+    } else {
+        convert_container(&source_path, &output_path, &source_ext, &target_ext, &report)?;
     }
 
     report(85);

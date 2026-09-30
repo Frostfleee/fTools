@@ -9,6 +9,7 @@ A lightweight desktop utility for Windows, built with [Tauri](https://tauri.app)
 - [symphonia](https://crates.io/crates/symphonia) for audio decoding.
 - [hound](https://crates.io/crates/hound), [flacenc](https://crates.io/crates/flacenc), [mp3lame-encoder](https://crates.io/crates/mp3lame-encoder), [vorbis_rs](https://crates.io/crates/vorbis_rs), [opus-rs](https://crates.io/crates/opus-rs), [ogg](https://crates.io/crates/ogg), and [rubato](https://crates.io/crates/rubato) for audio encoding and resampling.
 - [windows-rs](https://crates.io/crates/windows) (Media Foundation bindings) for AAC and M4A encoding, and for the MP4/MOV remux path.
+- [openh264](https://crates.io/crates/openh264) for H.264 decoding and encoding, and libvpx for VP8/VP9, when a video has to be re-encoded (for example MP4 to WebM).
 
 ## Installation
 Download the latest version in [Releases](../../releases) page and run it. fTools is Windows only (x64) since it relies on Windows Media Foundation for some audio formats.
@@ -53,7 +54,11 @@ main/
     ├── src/
     │   ├── main.rs               Rust backend: image, audio, and video conversion commands
     │   ├── ebml.rs               WebM container read/write (Matroska elements)
-    │   └── vpx.rs                Hand-written libvpx FFI bindings (VP9 encode/decode)
+    │   ├── demux.rs              Reads MKV/WebM, MP4/MOV and ADTS AAC into a common track format
+    │   ├── mp4.rs                MP4/MOV writer
+    │   ├── matroska.rs           MKV/WebM writer (with Cues for seeking)
+    │   ├── transcode.rs          Copies or re-encodes each track to fit the target container
+    │   └── vpx.rs                Hand-written libvpx FFI bindings (VP8/VP9 decode, VP9 encode)
     ├── Cargo.toml                Rust dependencies
     ├── tauri.conf.json           App, window, and bundle configuration
     ├── capabilities/              

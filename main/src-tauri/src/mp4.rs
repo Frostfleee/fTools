@@ -1,193 +1,13 @@
 use std::io::Write;
 
-use crate::ebml::{self, TrackMeta};
-
-const ID_BLOCK_GROUP: u32 = 0xA0;
-const ID_BLOCK: u32 = 0xA1;
-const ID_REFERENCE_BLOCK: u32 = 0xFB;
-const UNKNOWN_SIZE: u64 = u64::MAX;
+use crate::demux::{Codec, Track};
 
 const MOVIE_TIMESCALE: u32 = 1000;
 const VIDEO_TIMESCALE: u32 = 90_000;
 const CHUNK_SECONDS_DIVISOR: u32 = 2;
 
-struct Frame<'a> {
-    track: u64,
-    ticks: i64,
-    keyframe: bool,
-    data: &'a [u8],
-}
-
-fn read_id(d: &[u8], p: &mut usize) -> Option<u32> {
-    let b0 = *d.get(*p)?;
-    let len = b0.leading_zeros() as usize + 1;
-    if len > 4 || *p + len > d.len() {
-        return None;
-    }
-    let id = d[*p..*p + len].iter().fold(0u32, |acc, &b| (acc << 8) | b as u32);
-    *p += len;
-    Some(id)
-}
-
-fn read_vint(d: &[u8], p: &mut usize) -> Option<(u64, usize)> {
-    let b0 = *d.get(*p)?;
-    let len = b0.leading_zeros() as usize + 1;
-    if len > 8 || *p + len > d.len() {
-        return None;
-    }
-    let mut v = (b0 as u64) & (0xFFu64 >> len);
-    for &b in &d[*p + 1..*p + len] {
-        v = (v << 8) | b as u64;
-    }
-    *p += len;
-    Some((v, len))
-}
-
-fn read_size(d: &[u8], p: &mut usize) -> Option<u64> {
-    let (v, len) = read_vint(d, p)?;
-    Some(if v == (1u64 << (7 * len)) - 1 { UNKNOWN_SIZE } else { v })
-}
-
-fn parse_block<'a>(
-    body: &'a [u8],
-    keyframe_override: Option<bool>,
-    cluster_ts: i64,
-    wanted: &[u64],
-    frames: &mut Vec<Frame<'a>>,
-) -> Result<(), String> {
-    let bad = || "This MKV file has a malformed block, so it can't be repackaged.".to_string();
-    let mut q = 0usize;
-    let (track, _) = read_vint(body, &mut q).ok_or_else(bad)?;
-    if !wanted.contains(&track) {
-        return Ok(());
-    }
-    if q + 3 > body.len() {
-        return Err(bad());
-    }
-    let ticks = cluster_ts + i16::from_be_bytes([body[q], body[q + 1]]) as i64;
-    let flags = body[q + 2];
-    q += 3;
-    let keyframe = keyframe_override.unwrap_or(flags & 0x80 != 0);
-
-    let lacing = (flags >> 1) & 3;
-    if lacing == 0 {
-        frames.push(Frame { track, ticks, keyframe, data: &body[q..] });
-        return Ok(());
-    }
-
-    let count = *body.get(q).ok_or_else(bad)? as usize + 1;
-    q += 1;
-    let mut sizes: Vec<usize> = Vec::with_capacity(count);
-    match lacing {
-        1 => {
-            for _ in 0..count - 1 {
-                let mut s = 0usize;
-                loop {
-                    let b = *body.get(q).ok_or_else(bad)?;
-                    q += 1;
-                    s += b as usize;
-                    if b != 255 {
-                        break;
-                    }
-                }
-                sizes.push(s);
-            }
-        }
-        3 => {
-            if count > 1 {
-                let (first, _) = read_vint(body, &mut q).ok_or_else(bad)?;
-                sizes.push(first as usize);
-                let mut prev = first as i64;
-                for _ in 1..count - 1 {
-                    let (raw, len) = read_vint(body, &mut q).ok_or_else(bad)?;
-                    let v = prev + raw as i64 - ((1i64 << (7 * len - 1)) - 1);
-                    if v < 0 {
-                        return Err(bad());
-                    }
-                    sizes.push(v as usize);
-                    prev = v;
-                }
-            }
-        }
-        _ => {
-            let rest = body.len() - q;
-            if rest % count != 0 {
-                return Err(bad());
-            }
-            sizes.resize(count - 1, rest / count);
-        }
-    }
-    let used: usize = sizes.iter().sum();
-    if q + used > body.len() {
-        return Err(bad());
-    }
-    sizes.push(body.len() - q - used);
-    for s in sizes {
-        frames.push(Frame { track, ticks, keyframe, data: &body[q..q + s] });
-        q += s;
-    }
-    Ok(())
-}
-
-fn read_frames<'a>(raw: &'a [u8], wanted: &[u64]) -> Result<(Vec<Frame<'a>>, u64), String> {
-    let mut frames = Vec::new();
-    let mut timestamp_scale = 1_000_000u64;
-    let mut cluster_ts: i64 = 0;
-    let mut p = 0usize;
-    while p < raw.len() {
-        let Some(id) = read_id(raw, &mut p) else { break };
-        let Some(size) = read_size(raw, &mut p) else { break };
-        if id == ebml::ID_SEGMENT || id == ebml::ID_CLUSTER {
-            if id == ebml::ID_CLUSTER {
-                cluster_ts = 0;
-            }
-            continue;
-        }
-        if size == UNKNOWN_SIZE {
-            break;
-        }
-        let Some(body_end) = p.checked_add(size as usize).filter(|&e| e <= raw.len()) else { break };
-        let body = &raw[p..body_end];
-        match id {
-            ebml::ID_INFO => {
-                if let Ok(children) = ebml::read_elements(body) {
-                    if let Some(e) = ebml::find(&children, ebml::ID_TIMESTAMP_SCALE) {
-                        timestamp_scale = ebml::as_uint(e).max(1);
-                    }
-                }
-            }
-            ebml::ID_TIMESTAMP => {
-                cluster_ts = body.iter().fold(0i64, |acc, &b| (acc << 8) | b as i64);
-            }
-            ebml::ID_SIMPLE_BLOCK => parse_block(body, None, cluster_ts, wanted, &mut frames)?,
-            ID_BLOCK_GROUP => {
-                let mut block: Option<&[u8]> = None;
-                let mut has_reference = false;
-                let mut g = 0usize;
-                while g < body.len() {
-                    let Some(cid) = read_id(body, &mut g) else { break };
-                    let Some(csize) = read_size(body, &mut g) else { break };
-                    let Some(cend) = g.checked_add(csize as usize).filter(|&e| e <= body.len()) else { break };
-                    match cid {
-                        ID_BLOCK => block = Some(&body[g..cend]),
-                        ID_REFERENCE_BLOCK => has_reference = true,
-                        _ => {}
-                    }
-                    g = cend;
-                }
-                if let Some(b) = block {
-                    parse_block(b, Some(!has_reference), cluster_ts, wanted, &mut frames)?;
-                }
-            }
-            _ => {}
-        }
-        p = body_end;
-    }
-    Ok((frames, timestamp_scale))
-}
-
-fn ticks_to_units(ticks: i64, timestamp_scale: u64, timescale: u32) -> i64 {
-    let num = ticks as i128 * timestamp_scale as i128 * timescale as i128;
+fn ns_to_units(ns: i64, timescale: u32) -> i64 {
+    let num = ns as i128 * timescale as i128;
     (num + 500_000_000).div_euclid(1_000_000_000) as i64
 }
 
@@ -196,7 +16,7 @@ fn units_to_movie(units: i64, timescale: u32) -> i64 {
     (num + timescale as i128 / 2).div_euclid(timescale as i128) as i64
 }
 
-fn h264_sample_is_idr(data: &[u8], length_size: usize) -> bool {
+pub fn h264_sample_is_idr(data: &[u8], length_size: usize) -> bool {
     let mut i = 0usize;
     while i + length_size <= data.len() {
         let len = data[i..i + length_size].iter().fold(0usize, |acc, &b| (acc << 8) | b as usize);
@@ -226,7 +46,7 @@ struct OutTrack<'a> {
     durations: Vec<u32>,
     composition_offsets: Vec<u32>,
     sync_samples: Option<Vec<u32>>,
-    start_ns: i128,
+    start_ns: i64,
     media_time: i64,
     trim: i64,
     empty_edit: i64,
@@ -252,21 +72,14 @@ impl OutTrack<'_> {
     }
 }
 
-fn build_video_track<'a>(
-    t: &'a TrackMeta,
-    frames: &[&Frame<'a>],
-    timestamp_scale: u64,
-) -> Result<OutTrack<'a>, String> {
-    if t.codec_private.len() < 7 {
-        return Err(format!(
-            "This file's H.264 track (track {}) has no usable decoder configuration (avcC), so it can't be repackaged.",
-            t.number
-        ));
+fn build_video_track<'a>(t: &'a Track, avcc: &'a [u8]) -> Result<OutTrack<'a>, String> {
+    if avcc.len() < 7 {
+        return Err("This H.264 track has no usable decoder configuration (avcC), so it can't be converted.".to_string());
     }
-    let length_size = ((t.codec_private[4] & 0x03) + 1) as usize;
-    let n = frames.len();
+    let length_size = ((avcc[4] & 0x03) + 1) as usize;
+    let n = t.samples.len();
 
-    let pts: Vec<i64> = frames.iter().map(|f| ticks_to_units(f.ticks, timestamp_scale, VIDEO_TIMESCALE)).collect();
+    let pts: Vec<i64> = t.samples.iter().map(|s| ns_to_units(s.pts_ns, VIDEO_TIMESCALE)).collect();
     let mut sorted = pts.clone();
     sorted.sort_unstable();
     let mut dts: Vec<i64> = Vec::with_capacity(n);
@@ -281,31 +94,30 @@ fn build_video_track<'a>(
     durations.push(last);
 
     let mut sync: Vec<u32> = (0..n)
-        .filter(|&i| h264_sample_is_idr(frames[i].data, length_size))
+        .filter(|&i| h264_sample_is_idr(&t.samples[i].data, length_size))
         .map(|i| i as u32 + 1)
         .collect();
     if sync.is_empty() {
-        sync = (0..n).filter(|&i| frames[i].keyframe).map(|i| i as u32 + 1).collect();
+        sync = (0..n).filter(|&i| t.samples[i].keyframe).map(|i| i as u32 + 1).collect();
     }
     if sync.is_empty() {
         sync.push(1);
     }
     let sync_samples = if sync.len() == n { None } else { Some(sync) };
 
-    let min_ticks = frames.iter().map(|f| f.ticks).min().unwrap_or(0);
     Ok(OutTrack {
         kind: Kind::Avc {
-            avcc: &t.codec_private,
-            width: t.width.unwrap_or(0).min(u16::MAX as u64) as u16,
-            height: t.height.unwrap_or(0).min(u16::MAX as u64) as u16,
+            avcc,
+            width: t.width.min(u16::MAX as u32) as u16,
+            height: t.height.min(u16::MAX as u32) as u16,
         },
         timescale: VIDEO_TIMESCALE,
-        samples: frames.iter().map(|f| f.data).collect(),
+        samples: t.samples.iter().map(|s| s.data.as_ref()).collect(),
         decode_times: dts.iter().map(|d| d - dts[0]).collect(),
         durations,
         composition_offsets,
         sync_samples,
-        start_ns: min_ticks as i128 * timestamp_scale as i128,
+        start_ns: t.start_ns(),
         media_time: shift,
         trim: 0,
         empty_edit: 0,
@@ -314,31 +126,21 @@ fn build_video_track<'a>(
     })
 }
 
-fn build_audio_track<'a>(
-    t: &'a TrackMeta,
-    frames: &[&Frame<'a>],
-    timestamp_scale: u64,
-) -> Result<OutTrack<'a>, String> {
-    let sample_rate = t.sample_rate.unwrap_or(0.0).round() as u32;
-    if sample_rate == 0 {
-        return Err(format!("This file's audio track (track {}) doesn't declare a sample rate.", t.number));
+fn build_audio_track<'a>(t: &'a Track) -> Result<OutTrack<'a>, String> {
+    if t.sample_rate == 0 {
+        return Err("This audio track doesn't declare a sample rate.".to_string());
     }
-    let channels = t.channels.unwrap_or(2).clamp(1, u16::MAX as u64) as u16;
-    let (kind, candidates): (Kind, &[u32]) = if t.codec_id == "A_AAC" {
-        if t.codec_private.len() < 2 {
-            return Err(format!(
-                "This file's AAC track (track {}) has no decoder configuration, so it can't be repackaged.",
-                t.number
-            ));
-        }
-        (Kind::Aac { asc: &t.codec_private, channels, sample_rate }, &[1024, 960, 2048, 1920])
-    } else {
-        (Kind::Mp3 { channels, sample_rate }, &[1152, 576])
+    let sample_rate = t.sample_rate;
+    let channels = t.channels.max(1);
+    let (kind, candidates): (Kind, &[u32]) = match &t.codec {
+        Codec::Aac { asc } if asc.len() >= 2 => (Kind::Aac { asc, channels, sample_rate }, &[1024, 960, 2048, 1920]),
+        Codec::Aac { .. } => return Err("This AAC track has no decoder configuration, so it can't be converted.".to_string()),
+        _ => (Kind::Mp3 { channels, sample_rate }, &[1152, 576]),
     };
 
-    let n = frames.len();
+    let n = t.samples.len();
     let frame_duration = if n >= 2 {
-        let span = ticks_to_units(frames[n - 1].ticks - frames[0].ticks, timestamp_scale, sample_rate);
+        let span = ns_to_units(t.samples[n - 1].pts_ns - t.samples[0].pts_ns, sample_rate);
         let average = span as f64 / (n - 1) as f64;
         *candidates
             .iter()
@@ -351,12 +153,12 @@ fn build_audio_track<'a>(
     Ok(OutTrack {
         kind,
         timescale: sample_rate,
-        samples: frames.iter().map(|f| f.data).collect(),
+        samples: t.samples.iter().map(|s| s.data.as_ref()).collect(),
         decode_times: (0..n as i64).map(|i| i * frame_duration as i64).collect(),
         durations: vec![frame_duration; n],
         composition_offsets: Vec::new(),
         sync_samples: None,
-        start_ns: frames[0].ticks as i128 * timestamp_scale as i128 - t.codec_delay_ns.unwrap_or(0) as i128,
+        start_ns: t.start_ns(),
         media_time: 0,
         trim: 0,
         empty_edit: 0,
@@ -640,20 +442,13 @@ fn moov(tracks: &[OutTrack], use_co64: bool) -> Vec<u8> {
     bx(b"moov", &body)
 }
 
-pub fn write_from_mkv<W: Write>(raw: &[u8], tracks: &[TrackMeta], out: &mut W) -> Result<(), String> {
-    let wanted: Vec<u64> = tracks.iter().map(|t| t.number).collect();
-    let (frames, timestamp_scale) = read_frames(raw, &wanted)?;
-
+pub fn write<W: Write>(tracks: &[Track], out: &mut W) -> Result<(), String> {
     let mut out_tracks: Vec<OutTrack> = Vec::new();
-    for t in tracks {
-        let track_frames: Vec<&Frame> = frames.iter().filter(|f| f.track == t.number).collect();
-        if track_frames.is_empty() {
-            continue;
-        }
-        out_tracks.push(if t.track_type == 1 {
-            build_video_track(t, &track_frames, timestamp_scale)?
-        } else {
-            build_audio_track(t, &track_frames, timestamp_scale)?
+    for t in tracks.iter().filter(|t| !t.samples.is_empty()) {
+        out_tracks.push(match &t.codec {
+            Codec::H264 { avcc } => build_video_track(t, avcc)?,
+            Codec::Aac { .. } | Codec::Mp3 => build_audio_track(t)?,
+            other => return Err(format!("MP4/MOV output can't hold {} without re-encoding.", other.name())),
         });
     }
     if out_tracks.is_empty() {
@@ -664,9 +459,9 @@ pub fn write_from_mkv<W: Write>(raw: &[u8], tracks: &[TrackMeta], out: &mut W) -
     for t in &mut out_tracks {
         let offset_ns = t.start_ns - zero_ns;
         if offset_ns > 0 {
-            t.empty_edit = ((offset_ns * MOVIE_TIMESCALE as i128 + 500_000_000) / 1_000_000_000) as i64;
+            t.empty_edit = ns_to_units(offset_ns, MOVIE_TIMESCALE);
         } else if offset_ns < 0 {
-            let trim = ((-offset_ns * t.timescale as i128 + 500_000_000) / 1_000_000_000) as i64;
+            let trim = ns_to_units(-offset_ns, t.timescale);
             t.trim = trim.min(t.media_duration() - 1).max(0);
             t.media_time += t.trim;
         }
