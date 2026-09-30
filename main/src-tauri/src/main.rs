@@ -1382,6 +1382,25 @@ fn length_prefixed_to_annexb(data: &[u8], length_size: usize) -> Vec<u8> {
     out
 }
 
+fn h264_sample_is_idr(data: &[u8], length_size: usize) -> bool {
+    let mut i = 0usize;
+    while i + length_size <= data.len() {
+        let mut len: usize = 0;
+        for b in 0..length_size {
+            len = (len << 8) | data[i + b] as usize;
+        }
+        i += length_size;
+        if len == 0 || i + len > data.len() {
+            break;
+        }
+        if data[i] & 0x1F == 5 {
+            return true;
+        }
+        i += len;
+    }
+    false
+}
+
 fn avcc_extradata_to_annexb(avcc: &[u8]) -> Result<Vec<u8>, String> {
     if avcc.len() < 6 {
         return Err("This H.264 track's decoder configuration record is too short to read.".to_string());
@@ -2226,8 +2245,7 @@ fn remux_mkv_to_container(source_path: &Path, output_path: &Path, target_ext: &s
                                     user_data.extend_from_slice(&0u16.to_le_bytes());
                                     output_type.SetBlob(&MF_MT_USER_DATA, &user_data).map_err(|e| e.to_string())?;
                                 }
-                                let audio_object_type = t.codec_private.first().map(|&b| b >> 3).unwrap_or(0);
-                                if t.codec_id == "A_AAC" && !t.codec_private.is_empty() && audio_object_type != 2 {
+                                if t.codec_id == "A_AAC" && !t.codec_private.is_empty() {
                                     let mut user_data = Vec::with_capacity(12 + t.codec_private.len());
                                     user_data.extend_from_slice(&0u16.to_le_bytes());
                                     user_data.extend_from_slice(&0x00FEu16.to_le_bytes());
@@ -2254,17 +2272,25 @@ fn remux_mkv_to_container(source_path: &Path, output_path: &Path, target_ext: &s
 
 
                     let mut written_counts: std::collections::HashMap<u64, u32> = std::collections::HashMap::new();
+                    let mut video_idr_counts: std::collections::HashMap<u64, u32> = std::collections::HashMap::new();
 
                     for p in &packets {
                         let Some(&output_index) = stream_map.get(&p.track_number) else { continue };
 
+                        let mut is_clean_point = true;
                         let sample_data: std::borrow::Cow<[u8]> = match video_nal_info.get(&p.track_number) {
                             Some((length_size, annexb_header)) => {
+                                is_clean_point = h264_sample_is_idr(&p.data, *length_size);
                                 let mut nalus = length_prefixed_to_annexb(&p.data, *length_size);
-                                let mut with_header = Vec::with_capacity(annexb_header.len() + nalus.len());
-                                with_header.extend_from_slice(annexb_header);
-                                with_header.append(&mut nalus);
-                                std::borrow::Cow::Owned(with_header)
+                                if is_clean_point {
+                                    *video_idr_counts.entry(p.track_number).or_insert(0) += 1;
+                                    let mut with_header = Vec::with_capacity(annexb_header.len() + nalus.len());
+                                    with_header.extend_from_slice(annexb_header);
+                                    with_header.append(&mut nalus);
+                                    std::borrow::Cow::Owned(with_header)
+                                } else {
+                                    std::borrow::Cow::Owned(nalus)
+                                }
                             }
                             None => std::borrow::Cow::Borrowed(&p.data),
                         };
@@ -2280,13 +2306,16 @@ fn remux_mkv_to_container(source_path: &Path, output_path: &Path, target_ext: &s
                         sample.AddBuffer(&buffer).map_err(|e| e.to_string())?;
                         sample.SetSampleTime(p.ts_ms * 10_000).map_err(|e| e.to_string())?;
                         sample.SetSampleDuration(p.duration_ms * 10_000).map_err(|e| e.to_string())?;
-                        sample.SetUINT32(&MFSampleExtension_CleanPoint, 1).map_err(|e| e.to_string())?;
+                        sample.SetUINT32(&MFSampleExtension_CleanPoint, is_clean_point as u32).map_err(|e| e.to_string())?;
 
                         writer.WriteSample(output_index, &sample).map_err(|e| format!("Couldn't write media data: {e}"))?;
                         *written_counts.entry(p.track_number).or_insert(0) += 1;
                     }
 
-                    let debug_line = format!("samples written per stream: {:?}\n", written_counts);
+                    let debug_line = format!(
+                        "samples written per stream: {:?}\nvideo IDR frames per stream: {:?}\n",
+                        written_counts, video_idr_counts
+                    );
                     let log_path = std::env::temp_dir().join("ftools_mkv_remux_debug.txt");
                     let _ = std::fs::OpenOptions::new().append(true).open(&log_path).and_then(|mut f| f.write_all(debug_line.as_bytes()));
 
@@ -2303,9 +2332,13 @@ fn remux_mkv_to_container(source_path: &Path, output_path: &Path, target_ext: &s
         }
     });
 
-    handle
+    if let Err(e) = handle
         .join()
-        .unwrap_or_else(|_| Err("The Media Foundation remux thread panicked.".to_string()))?;
+        .unwrap_or_else(|_| Err("The Media Foundation remux thread panicked.".to_string()))
+    {
+        let _ = fs::remove_file(&write_path);
+        return Err(e);
+    }
 
     if needs_rename {
         fs::rename(&write_path, output_path).map_err(|e| {
