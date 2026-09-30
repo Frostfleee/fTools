@@ -2325,6 +2325,88 @@ document.addEventListener('keydown', (e) => {
     }
 }, true);
 
+const TOOLTIP_DELAY = 333;
+const TOOLTIP_OFFSET = 10;
+const TOOLTIP_EDGE = 4;
+
+const tooltip = document.createElement('div');
+tooltip.className = 'tooltip';
+tooltip.setAttribute('popover', 'manual');
+tooltip.setAttribute('role', 'tooltip');
+document.body.appendChild(tooltip);
+
+let tooltipTarget = null;
+let tooltipTimer = null;
+let tooltipBlocked = false;
+let tooltipX = 0;
+let tooltipY = 0;
+
+function placeTooltip() {
+    const { width, height } = tooltip.getBoundingClientRect();
+    let left = tooltipX + TOOLTIP_OFFSET;
+    if (left + width > window.innerWidth - TOOLTIP_EDGE) {
+        left = tooltipX - TOOLTIP_OFFSET - width;
+    }
+    const top = Math.min(
+        Math.max(tooltipY - height / 2, TOOLTIP_EDGE),
+        window.innerHeight - TOOLTIP_EDGE - height
+    );
+    tooltip.style.left = `${Math.max(left, TOOLTIP_EDGE)}px`;
+    tooltip.style.top = `${top}px`;
+}
+
+function showTooltip() {
+    tooltipTimer = null;
+    const text = tooltipTarget?.getAttribute('tooltip');
+    if (!text || tooltipBlocked) return;
+    tooltip.textContent = text;
+    if (!tooltip.matches(':popover-open')) tooltip.showPopover();
+    tooltip.classList.add('show');
+    placeTooltip();
+}
+
+function hideTooltip() {
+    clearTimeout(tooltipTimer);
+    tooltipTimer = null;
+    tooltip.classList.remove('show');
+    if (tooltip.matches(':popover-open')) tooltip.hidePopover();
+}
+
+function blockTooltip() {
+    hideTooltip();
+    tooltipBlocked = true;
+}
+
+document.addEventListener('pointermove', (e) => {
+    tooltipX = e.clientX;
+    tooltipY = e.clientY;
+    const target = e.target.closest?.('[tooltip]') ?? null;
+    if (target !== tooltipTarget) {
+        hideTooltip();
+        tooltipTarget = target;
+        tooltipBlocked = false;
+        if (target) tooltipTimer = setTimeout(showTooltip, TOOLTIP_DELAY);
+        return;
+    }
+    if (tooltip.classList.contains('show')) {
+        const text = tooltipTarget.getAttribute('tooltip');
+        if (!text) return hideTooltip();
+        if (tooltip.textContent !== text) tooltip.textContent = text;
+        placeTooltip();
+    }
+});
+
+document.addEventListener('mouseout', (e) => {
+    if (e.relatedTarget) return;
+    hideTooltip();
+    tooltipTarget = null;
+});
+
+document.addEventListener('pointerdown', blockTooltip, true);
+document.addEventListener('keydown', blockTooltip, true);
+document.addEventListener('wheel', blockTooltip, { capture: true, passive: true });
+window.addEventListener('blur', blockTooltip);
+
 function initCustomDropdown(select, trigger) {
     if (select.dataset.customized) return;
     select.dataset.customized = '1';
