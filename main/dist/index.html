@@ -30,12 +30,12 @@
         <img class="titlebar-icon" src="icons/icon.png"/>
         <div class="title" id="titlebar-title">fTools</div>
         <div class="controls">
-            <button id="titlebar-minimize" tabindex="-1">
+            <button id="titlebar-minimize" tabindex="-1" tooltip="Minimize">
                 <svg width="12" height="12" viewBox="0 0 12 12">
                     <path d="M0 6h9.9" stroke="currentColor" stroke-width="1" stroke-linecap="round" shape-rendering="crispEdges"/>
                 </svg>
             </button>
-            <button id="titlebar-close" tabindex="-1">
+            <button id="titlebar-close" tabindex="-1" tooltip="Close">
                 <svg width="12" height="12" viewBox="0 0 12 12">
                     <path d="M1 1L11 11M1 11L11 1" stroke="currentColor" stroke-width="1" stroke-linecap="round" shape-rendering="crispEdges"/>
                 </svg>
@@ -44,18 +44,18 @@
         </div>
         <div class="sidebar">
             <div class="sidebar-indicator" id="sidebar-indicator"></div>
-            <button class="sidebar-button" id="t-fontstyler"><i class="codicon codicon-edit-sparkle"></i></button>
-            <button class="sidebar-button" id="t-colorformat"><i class="codicon codicon-symbol-color"></i></button>
-            <button class="sidebar-button" id="t-mediafileconverter"><i class="icon icon-convert"></i></button>
-            <button class="sidebar-button" id="t-autoclicker"><i class="codicon codicon-debug-rerun"></i></button>
-            <button class="sidebar-button" id="t-qrcodeconverter"><i class="icon icon-qrcode"></i></button>
-            <button class="sidebar-button" id="t-settings"><i class="codicon codicon-settings-gear"></i></button>
+            <button class="sidebar-button" id="t-fontstyler" tooltip="Font Styler"><i class="codicon codicon-edit-sparkle"></i></button>
+            <button class="sidebar-button" id="t-colorformat" tooltip="Color Format"><i class="codicon codicon-symbol-color"></i></button>
+            <button class="sidebar-button" id="t-mediafileconverter" tooltip="Media File Converter"><i class="icon icon-convert"></i></button>
+            <button class="sidebar-button" id="t-autoclicker" tooltip="Auto Clicker"><i class="codicon codicon-debug-rerun"></i></button>
+            <button class="sidebar-button" id="t-qrcodeconverter" tooltip="QR Code Maker"><i class="icon icon-qrcode"></i></button>
+            <button class="sidebar-button" id="t-settings" tooltip="Settings"><i class="codicon codicon-settings-gear"></i></button>
         </div>
         <div class="window">
         <div class="tab" id="fontstyler">
             <div class="input-fix"></div>
             <input class="input-box" placeholder="Type something..."/>
-            <button class="input-clear" type="button">
+            <button class="input-clear" type="button" tooltip="Clear">
                 <svg fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-mainColor)">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
                 </svg>
@@ -92,7 +92,7 @@
         <div class="tab" id="colorformat">
             <div class="input-fix"></div>
             <input class="input-box" placeholder="Type something..."/>
-            <button class="input-clear" type="button">
+            <button class="input-clear" type="button" tooltip="Clear">
                 <svg xmlns="fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-mainColor)">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
                 </svg>
@@ -125,7 +125,7 @@
             </div>
         </div>
         <div class="tab" id="colorpicker-panel">
-            <button class="colorpicker-back" id="colorpicker-back" type="button"></button>
+            <button class="colorpicker-back" id="colorpicker-back" type="button" tooltip="Back"></button>
             <div id="colorpicker">
                 <div class="color-preview-wrap">
                     <div class="color-preview"></div>
@@ -145,12 +145,12 @@
             <input class="file-upload" type="file" id="files" accept="*" tabindex="-1"/>
             <div class="input-fix"></div>
             <input class="input-box" placeholder="File name"/>
-            <button class="input-clear" type="button">
+            <button class="input-clear" type="button" tooltip="Clear">
                 <svg fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-mainColor)">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
                 </svg>
             </button>
-            <label class="file-upload-zone" for="files" tabindex="0" role="button" aria-label="Upload file">
+            <label class="file-upload-zone" for="files" tabindex="0" role="button" aria-label="Upload file" tooltip="Upload file">
                 <div class="file-upload-border"></div>
                 <svg class="upload-svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-mainColor)" class="size-6">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
@@ -200,7 +200,7 @@
                     <option value="aiff">AIFF</option>
                 </optgroup>
             </select>
-            <div class="unattach-file" role="button" tabindex="-1" aria-label="Remove file">
+            <div class="unattach-file" role="button" tabindex="-1" aria-label="Remove file" tooltip="Remove file">
                 <svg fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                     <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
                 </svg>
@@ -231,13 +231,13 @@
                 <div class="autoclicker-row" id="ac-click-type-row">
                     <div class="autoclicker-name"><i class="autoclicker-icon codicon codicon-cursor"></i><span>Click type</span></div>
                     <div class="ac-mode-switch" id="ac-mode-switch" role="tablist">
-                        <button type="button" class="ac-mode-option selected" id="ac-mode-mouse" data-mode="mouse" role="tab" aria-selected="true">
+                        <button type="button" class="ac-mode-option selected" id="ac-mode-mouse" data-mode="mouse" tooltip="Mouse" role="tab" aria-selected="true">
                             <i class="icon icon-mouse"></i>
                         </button>
-                        <button type="button" class="ac-mode-option" id="ac-mode-keyboard" data-mode="keyboard" role="tab" aria-selected="false">
+                        <button type="button" class="ac-mode-option" id="ac-mode-keyboard" data-mode="keyboard" tooltip="Keyboard" role="tab" aria-selected="false">
                             <i class="codicon codicon-keyboard"></i>
                         </button>
-                        <button type="button" class="ac-mode-option" id="ac-mode-multiple" data-mode="multiple" role="tab" aria-selected="false">
+                        <button type="button" class="ac-mode-option" id="ac-mode-multiple" data-mode="multiple" tooltip="Multiple inputs" role="tab" aria-selected="false">
                             <i class="codicon codicon-list-unordered"></i>
                         </button>
                     </div>
@@ -308,7 +308,7 @@
                         <canvas id="qr-preview-canvas" width="120" height="120"></canvas>
                         <div class="qr-preview-spinner" id="qr-preview-spinner" aria-hidden="true"></div>
                     </div>
-                    <div class="qr-ecl-slider" id="qr-ecl-row">
+                    <div class="qr-ecl-slider" id="qr-ecl-row" tooltip="Error correction">
                         <select class="qr-ecl-select-hidden" id="qr-ecl" tabindex="-1" aria-hidden="true">
                             <option value="H">High</option>
                             <option value="Q">Quartile</option>
@@ -348,7 +348,7 @@
                 <div class="settings-row" default="disabled" id="s-background-row">
                     <div class="settings-name"><i class="settings-icon codicon codicon-star-empty"></i><span>Background media</span></div>
                     <input class="file-upload" type="file" id="s-background-file-input" accept="*" tabindex="-1"/>
-                    <div class="settings-remove" id="s-background-remove" role="button" tabindex="-1" aria-label="Remove background image">
+                    <div class="settings-remove" id="s-background-remove" role="button" tabindex="-1" aria-label="Remove background image" tooltip="Remove background media">
                         <svg fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
                             <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
                         </svg>
@@ -384,7 +384,7 @@
             <div class="tab" id="sidebar-editor">
                 <div class="editor">
                     <div class="editor-header">
-                        <button class="editor-back" id="editor-back" type="button" aria-label="Back to Settings"></button>
+                        <button class="editor-back" id="editor-back" type="button" aria-label="Back to Settings" tooltip="Back"></button>
                         <span>Sidebar editor</span>
                         <button class="editor-reset" id="editor-reset" type="button">
                             <svg width="12" height="12" viewBox="0 0 16 16" fill="none" stroke="currentColor" stroke-width="1.5">

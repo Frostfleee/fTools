@@ -931,6 +931,7 @@ function setupColorPanel() {
     swatch.tabIndex = 0;
     swatch.setAttribute('role', 'button');
     swatch.setAttribute('aria-label', 'Open color picker');
+    swatch.setAttribute('tooltip', 'Open color picker');
     const textSpan = document.createElement('span');
     textSpan.className = 'color-text';
     content.appendChild(swatch);
@@ -1412,6 +1413,7 @@ function setupQrConverter() {
 
     const textInput = document.getElementById('qr-text');
     const eclSelect = document.getElementById('qr-ecl');
+    const eclRow = document.getElementById('qr-ecl-row');
     const eclStops = Array.from(document.querySelectorAll('#qr-ecl-stops .qr-ecl-stop'));
     const eclTrack = document.getElementById('qr-ecl-track');
     const eclThumbVisual = document.getElementById('qr-ecl-thumb');
@@ -1535,6 +1537,8 @@ function setupQrConverter() {
     function setEclSelected(value) {
         eclStops.forEach((btn) => btn.classList.toggle('selected', btn.dataset.value === value));
         setEclThumb(value);
+        const level = eclSelect.querySelector(`option[value="${value}"]`)?.textContent;
+        if (level) eclRow?.setAttribute('tooltip', `Error correction: ${level}`);
     }
 
     function setEcl(value) {
@@ -2326,7 +2330,8 @@ document.addEventListener('keydown', (e) => {
 }, true);
 
 const TOOLTIP_DELAY = 333;
-const TOOLTIP_OFFSET = 10;
+const TOOLTIP_OFFSET = 20;
+const TOOLTIP_CENTER_Y = 6;
 const TOOLTIP_EDGE = 4;
 
 const tooltip = document.createElement('div');
@@ -2348,7 +2353,7 @@ function placeTooltip() {
         left = tooltipX - TOOLTIP_OFFSET - width;
     }
     const top = Math.min(
-        Math.max(tooltipY - height / 2, TOOLTIP_EDGE),
+        Math.max(tooltipY + TOOLTIP_CENTER_Y - height / 2, TOOLTIP_EDGE),
         window.innerHeight - TOOLTIP_EDGE - height
     );
     tooltip.style.left = `${Math.max(left, TOOLTIP_EDGE)}px`;
@@ -3041,6 +3046,7 @@ function renderAcActionList() {
         remove.type = 'button';
         remove.className = 'ac-action-remove';
         remove.setAttribute('aria-label', 'Remove action');
+        remove.setAttribute('tooltip', 'Remove action');
         remove.innerHTML = '<svg fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor"><path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" /></svg>';
         remove.addEventListener('click', () => removeAcAction(action.id));
         item.appendChild(remove);
@@ -4200,6 +4206,7 @@ function renderEditorList() {
 
         const handle = document.createElement('div');
         handle.className = 'editor-handle';
+        handle.setAttribute('tooltip', 'Drag to reorder');
         handle.innerHTML = '<svg width="10" height="16" viewBox="0 0 10 16" fill="currentColor"><circle cx="2.5" cy="2.5" r="1.5"/><circle cx="7.5" cy="2.5" r="1.5"/><circle cx="2.5" cy="8" r="1.5"/><circle cx="7.5" cy="8" r="1.5"/><circle cx="2.5" cy="13.5" r="1.5"/><circle cx="7.5" cy="13.5" r="1.5"/></svg>';
         handle.addEventListener('pointerdown', (e) => startEditorDrag(e, item));
 

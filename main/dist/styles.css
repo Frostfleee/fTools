@@ -629,6 +629,7 @@ body.skip-tab-anim #t-settings.sidebar-button.active i {
     display: -webkit-box;
     -webkit-box-orient: vertical;
     -webkit-line-clamp: 3;
+    line-clamp: 3;
     overflow: hidden;
 }
 .app-dialog-footer {
@@ -672,7 +673,7 @@ body.skip-tab-anim #t-settings.sidebar-button.active i {
     top: 0;
     left: 0;
     margin: 0;
-    padding: 8px;
+    padding: 4px 8px;
     box-sizing: border-box;
     overflow: visible;
     border-radius: 4px;
@@ -681,7 +682,7 @@ body.skip-tab-anim #t-settings.sidebar-button.active i {
     box-shadow: 0 2px 8px #00000024;
     color: var(--t-contrastColor);
     font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
-    font-size: 10px;
+    font-size: 12px;
     white-space: nowrap;
     pointer-events: none;
     user-select: none;
