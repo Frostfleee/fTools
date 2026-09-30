@@ -50,7 +50,8 @@
 
 body::after,
 .dropdown-popup::after,
-.warn::after {
+.warn::after,
+.app-dialog::after {
     content: "";
     position: absolute;
     inset: 0;
@@ -61,7 +62,8 @@ body::after,
 }
 [theme="transparent"]::after,
 [theme="transparent"] .dropdown-popup::after,
-[theme="transparent"] .warn::after {
+[theme="transparent"] .warn::after,
+[theme="transparent"] .app-dialog::after {
     opacity: 0.5%;
 }
 
@@ -251,7 +253,8 @@ body {
     background-color: #000;
 }
 [theme="transparent"][background-active] .warn,
-[theme="transparent"][background-active] .dropdown-popup {
+[theme="transparent"][background-active] .dropdown-popup,
+[theme="transparent"][background-active] .app-dialog {
     background-color: transparent;
     backdrop-filter: blur(5px);
     -webkit-backdrop-filter: blur(5px);

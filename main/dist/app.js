@@ -2199,7 +2199,7 @@ function hideFocusRing() {
     if (focusRing.matches(':popover-open')) focusRing.hidePopover();
 }
 
-let usingKeyboard = true;
+let usingKeyboard = false;
 
 document.addEventListener('pointerdown', () => {
     usingKeyboard = false;
