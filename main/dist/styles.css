@@ -570,9 +570,9 @@ body.skip-tab-anim #t-settings.sidebar-button.active i {
     display: block;
 }
 
-/*——/ Save Dialog /——————————————————————————————————————————*/
+/*——/ Dialog /———————————————————————————————————————————————*/
 
-.save-dialog-overlay {
+.app-dialog-overlay {
     position: fixed;
     inset: var(--titlebarHeight) 0 0 0;
     display: flex;
@@ -584,12 +584,12 @@ body.skip-tab-anim #t-settings.sidebar-button.active i {
     z-index: 999;
     transition: opacity .15s ease, visibility 0s linear .15s;
 }
-.save-dialog-overlay.show {
+.app-dialog-overlay.show {
     visibility: visible;
     opacity: 1;
     transition: opacity .15s ease;
 }
-.save-dialog {
+.app-dialog {
     width: 360px;
     border-radius: 8px;
     border: solid 1px var(--t-dialogBorder);
@@ -601,13 +601,13 @@ body.skip-tab-anim #t-settings.sidebar-button.active i {
     transform: scale(1.05);
     transition: transform .2s cubic-bezier(.1, .9, .2, 1);
 }
-.save-dialog-overlay.show .save-dialog {
+.app-dialog-overlay.show .app-dialog {
     transform: scale(1);
 }
-.save-dialog-content {
-    padding: 20px 24px 22px;
+.app-dialog-content {
+    padding: 18px 24px 20px;
 }
-.save-dialog-title {
+.app-dialog-title {
     color: var(--t-contrastColor);
     font-family: "Segoe UI Variable Display", "Segoe UI", sans-serif;
     font-size: 20px;
@@ -615,22 +615,24 @@ body.skip-tab-anim #t-settings.sidebar-button.active i {
     line-height: 28px;
     margin-bottom: 10px;
 }
-.save-dialog-message {
+.app-dialog-message {
     color: var(--t-mainColor);
     font-size: 14px;
     line-height: 20px;
+    overflow-wrap: anywhere;
+    display: -webkit-box;
+    -webkit-box-orient: vertical;
+    -webkit-line-clamp: 3;
     overflow: hidden;
-    text-overflow: ellipsis;
-    white-space: nowrap;
 }
-.save-dialog-footer {
+.app-dialog-footer {
     display: flex;
     gap: 8px;
-    padding: 22px 24px;
+    padding: 20px 24px;
     background-color: var(--t-dialogFooterBg);
     border-top: solid 1px var(--t-dialogBorder);
 }
-.save-dialog-button {
+.app-dialog-button {
     flex: 1 1 0;
     height: 32px;
     min-width: 0;
@@ -645,14 +647,14 @@ body.skip-tab-anim #t-settings.sidebar-button.active i {
     cursor: pointer;
     transition: background-color .15s ease;
 }
-.save-dialog-button:hover {
+.app-dialog-button:hover {
     background-color: var(--t-buttonHover);
 }
-.save-dialog-button.featured {
+.app-dialog-button.featured {
     background-color: var(--t-buttonFeaturedBg);
     color: var(--t-buttonFeaturedColor);
 }
-.save-dialog-button.featured:hover {
+.app-dialog-button.featured:hover {
     background-color: var(--t-buttonFeaturedHover);
 }
 

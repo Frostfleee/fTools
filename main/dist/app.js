@@ -1312,6 +1312,28 @@ function setupMediaPanel() {
 
         const { invoke } = window.__TAURI__.core;
         const { listen } = window.__TAURI__.event;
+        const outputName = fileNameInput.value || originalFileName;
+        const targetExt = dropdown.value.toLowerCase();
+
+        const existingFolder = await invoke('existing_output_folder', {
+            sourcePath: originalFilePath,
+            outputName,
+            targetExt
+        }).catch((err) => {
+            console.error('Could not check for an existing output file:', err);
+            return null;
+        });
+        if (existingFolder !== null) {
+            const choice = await showDialog({
+                title: 'Replace existing file?',
+                message: `“${outputName}.${targetExt}” already exists in “${existingFolder}”. Proceeding will permanently delete the old file.`,
+                buttons: [
+                    { label: 'Replace', value: 'replace', featured: true },
+                    { label: 'Cancel', value: 'cancel', focus: true }
+                ]
+            });
+            if (choice !== 'replace') return;
+        }
 
         showLoading();
         const unlisten = await listen('conversion-progress', (event) => {
@@ -1322,8 +1344,8 @@ function setupMediaPanel() {
             const outputPath = effectiveKind === 'image'
                 ? await invoke('convert_image', {
                     sourcePath: originalFilePath,
-                    outputName: fileNameInput.value || originalFileName,
-                    targetExt: dropdown.value.toLowerCase(),
+                    outputName,
+                    targetExt,
                     keepMetadata: metadataCheckbox.checked,
                     preserveDate: preserveCheckbox.checked,
                     overwrite: overwriteCheckbox.checked
@@ -1331,15 +1353,15 @@ function setupMediaPanel() {
                 : effectiveKind === 'video'
                 ? await invoke('convert_video', {
                     sourcePath: originalFilePath,
-                    outputName: fileNameInput.value || originalFileName,
-                    targetExt: dropdown.value.toLowerCase(),
+                    outputName,
+                    targetExt,
                     preserveDate: preserveCheckbox.checked,
                     overwrite: overwriteCheckbox.checked
                 })
                 : await invoke('convert_audio', {
                     sourcePath: originalFilePath,
-                    outputName: fileNameInput.value || originalFileName,
-                    targetExt: dropdown.value.toLowerCase(),
+                    outputName,
+                    targetExt,
                     preserveDate: preserveCheckbox.checked,
                     overwrite: overwriteCheckbox.checked
                 });
@@ -2236,6 +2258,72 @@ function trackFocusRing() {
     lastTrackedRect = rect;
 }
 setInterval(trackFocusRing, (1000 / 60) / 10);
+
+const appDialog = document.getElementById('app-dialog');
+const appDialogTitle = document.getElementById('app-dialog-title');
+const appDialogMessage = document.getElementById('app-dialog-message');
+const appDialogFooter = document.getElementById('app-dialog-footer');
+const appDialogBlocked = [document.querySelector('.window'), document.querySelector('.sidebar')];
+let appDialogButtons = [];
+let appDialogCancelValue = null;
+let appDialogResolve = null;
+let appDialogReturnFocus = null;
+
+function showDialog({ title, message, buttons, cancelValue = 'cancel' }) {
+    if (!appDialog) return Promise.resolve(cancelValue);
+    closeDialog(appDialogCancelValue);
+    openDropdownState?.close();
+    appDialogTitle.textContent = title;
+    appDialogMessage.textContent = message;
+    appDialogButtons = buttons.map(({ label, value, featured }) => {
+        const button = document.createElement('button');
+        button.className = featured ? 'app-dialog-button featured' : 'app-dialog-button';
+        button.textContent = label;
+        button.addEventListener('click', () => closeDialog(value));
+        return button;
+    });
+    appDialogFooter.replaceChildren(...appDialogButtons);
+    appDialogCancelValue = cancelValue;
+    appDialogReturnFocus = document.activeElement;
+    appDialogBlocked.forEach(el => el?.setAttribute('inert', ''));
+    appDialog.classList.add('show');
+    const initial = appDialogButtons[buttons.findIndex(b => b.focus)] ?? appDialogButtons[0];
+    initial?.focus({ preventScroll: true });
+    return new Promise(resolve => { appDialogResolve = resolve; });
+}
+
+function closeDialog(value) {
+    if (!appDialogResolve) return;
+    const resolve = appDialogResolve;
+    appDialogResolve = null;
+    appDialog.classList.remove('show');
+    appDialogBlocked.forEach(el => el?.removeAttribute('inert'));
+    appDialogReturnFocus?.focus?.({ preventScroll: true });
+    appDialogReturnFocus = null;
+    resolve(value);
+}
+
+appDialog?.addEventListener('mousedown', (e) => {
+    if (!e.target.closest('.app-dialog-button')) e.preventDefault();
+});
+
+document.addEventListener('keydown', (e) => {
+    if (!appDialogResolve) return;
+    if (e.key === 'Escape') {
+        e.preventDefault();
+        e.stopPropagation();
+        closeDialog(appDialogCancelValue);
+    } else if (e.key === 'Tab') {
+        e.preventDefault();
+        e.stopPropagation();
+        const count = appDialogButtons.length;
+        const index = appDialogButtons.indexOf(document.activeElement);
+        const next = index < 0
+            ? (e.shiftKey ? count - 1 : 0)
+            : (index + (e.shiftKey ? count - 1 : 1)) % count;
+        appDialogButtons[next].focus();
+    }
+}, true);
 
 function initCustomDropdown(select, trigger) {
     if (select.dataset.customized) return;
@@ -4168,61 +4256,3 @@ setupSettingsPanel().then((panelId) => {
         document.body.toggleAttribute('window-focused', focused);
     });
 })();
-
-const saveDialog = document.getElementById('save-dialog');
-const saveDialogFile = document.getElementById('save-dialog-file');
-const saveDialogButtons = saveDialog ? [...saveDialog.querySelectorAll('.save-dialog-button')] : [];
-const saveDialogBlocked = [document.querySelector('.window'), document.querySelector('.sidebar')];
-let saveDialogResolve = null;
-let saveDialogReturnFocus = null;
-
-function showSaveDialog(fileName = 'Untitled') {
-    if (!saveDialog) return Promise.resolve('cancel');
-    closeSaveDialog('cancel');
-    openDropdownState?.close();
-    saveDialogFile.textContent = fileName;
-    saveDialogReturnFocus = document.activeElement;
-    saveDialogBlocked.forEach(el => el?.setAttribute('inert', ''));
-    saveDialog.classList.add('show');
-    saveDialogButtons[0]?.focus({ preventScroll: true });
-    return new Promise(resolve => { saveDialogResolve = resolve; });
-}
-
-function closeSaveDialog(choice) {
-    if (!saveDialogResolve) return;
-    const resolve = saveDialogResolve;
-    saveDialogResolve = null;
-    saveDialog.classList.remove('show');
-    saveDialogBlocked.forEach(el => el?.removeAttribute('inert'));
-    saveDialogReturnFocus?.focus?.({ preventScroll: true });
-    saveDialogReturnFocus = null;
-    resolve(choice);
-}
-
-saveDialogButtons.forEach(button => {
-    button.addEventListener('click', () => closeSaveDialog(button.dataset.choice));
-});
-
-saveDialog?.addEventListener('mousedown', (e) => {
-    if (!e.target.closest('.save-dialog-button')) e.preventDefault();
-});
-
-document.addEventListener('keydown', (e) => {
-    if (!saveDialogResolve) return;
-    if (e.key === 'Escape') {
-        e.preventDefault();
-        e.stopPropagation();
-        closeSaveDialog('cancel');
-    } else if (e.key === 'Tab') {
-        e.preventDefault();
-        e.stopPropagation();
-        const count = saveDialogButtons.length;
-        const index = saveDialogButtons.indexOf(document.activeElement);
-        const next = index < 0
-            ? (e.shiftKey ? count - 1 : 0)
-            : (index + (e.shiftKey ? count - 1 : 1)) % count;
-        saveDialogButtons[next].focus();
-    }
-}, true);
-
-showSaveDialog().then(choice => console.log('Save dialog choice:', choice));
