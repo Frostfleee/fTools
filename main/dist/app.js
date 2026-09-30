@@ -704,6 +704,12 @@ function updatePickerPreview(hue, lightness) {
     pickerPreview.style.backgroundColor = finalColor;
     pickerDarkness.style.background = `linear-gradient(${baseHsl}, #0000)`;
     pickerTransparency.style.background = `linear-gradient(${darkMix}, #0000)`;
+    updatePickerSliderTooltips();
+}
+
+function updatePickerSliderTooltips() {
+    pickerDarkness.setAttribute('tooltip', `Darkness: ${Math.round(pickerDarkness.value)}%`);
+    pickerTransparency.setAttribute('tooltip', `Transparency: ${Math.round(pickerTransparency.value)}%`);
 }
 
 function pickerCurrentHue() {
@@ -876,6 +882,7 @@ function syncPickerFromColor(rgba) {
 
     pickerDarkness.value = Math.round(dark * 100);
     pickerTransparency.value = Math.round((1 - rgba.a) * 100);
+    updatePickerSliderTooltips();
 
     const baseRgb = hslToRgb(h, 100, light);
     const darkRgb = {
@@ -2333,6 +2340,11 @@ const TOOLTIP_DELAY = 333;
 const TOOLTIP_OFFSET = 20;
 const TOOLTIP_CENTER_Y = 6;
 const TOOLTIP_EDGE = 4;
+const TOOLTIP_FLIP_MARGIN = 8;
+const TOOLTIP_FOLLOW_MS = 40;
+const TOOLTIP_FLIP_MS = 70;
+const TOOLTIP_FLIP_DURATION = 350;
+const TOOLTIP_FADE_MS = 120;
 
 const tooltip = document.createElement('div');
 tooltip.className = 'tooltip';
@@ -2342,39 +2354,108 @@ document.body.appendChild(tooltip);
 
 let tooltipTarget = null;
 let tooltipTimer = null;
+let tooltipHideTimer = null;
+let tooltipFrame = null;
+let tooltipLastFrame = 0;
+let tooltipFlipUntil = 0;
+let tooltipSide = 'right';
+let tooltipVisible = false;
 let tooltipBlocked = false;
+let tooltipDragging = false;
+let tooltipMouseX = 0;
+let tooltipMouseY = 0;
 let tooltipX = 0;
 let tooltipY = 0;
 
-function placeTooltip() {
-    const { width, height } = tooltip.getBoundingClientRect();
-    let left = tooltipX + TOOLTIP_OFFSET;
-    if (left + width > window.innerWidth - TOOLTIP_EDGE) {
-        left = tooltipX - TOOLTIP_OFFSET - width;
+function isSliderTooltip(el) {
+    return el.matches('input[type="range"]') || !!el.querySelector('input[type="range"]');
+}
+
+function tooltipDestination() {
+    const width = tooltip.offsetWidth;
+    const height = tooltip.offsetHeight;
+    const margin = tooltipSide === 'left' ? TOOLTIP_FLIP_MARGIN : 0;
+    const side = tooltipMouseX + TOOLTIP_OFFSET + width <= window.innerWidth - TOOLTIP_EDGE - margin ? 'right' : 'left';
+    if (side !== tooltipSide) {
+        tooltipSide = side;
+        tooltipFlipUntil = performance.now() + TOOLTIP_FLIP_DURATION;
     }
-    const top = Math.min(
-        Math.max(tooltipY + TOOLTIP_CENTER_Y - height / 2, TOOLTIP_EDGE),
+    const x = side === 'right' ? tooltipMouseX + TOOLTIP_OFFSET : tooltipMouseX - TOOLTIP_OFFSET - width;
+    const y = Math.min(
+        Math.max(tooltipMouseY + TOOLTIP_CENTER_Y - height / 2, TOOLTIP_EDGE),
         window.innerHeight - TOOLTIP_EDGE - height
     );
-    tooltip.style.left = `${Math.max(left, TOOLTIP_EDGE)}px`;
-    tooltip.style.top = `${top}px`;
+    return { x: Math.max(x, TOOLTIP_EDGE), y };
+}
+
+function renderTooltipPosition() {
+    tooltip.style.transform = `translate3d(${tooltipX}px, ${tooltipY}px, 0)`;
+}
+
+function stepTooltip(now) {
+    tooltipFrame = null;
+    if (!tooltipVisible) return;
+    const text = tooltipTarget?.getAttribute('tooltip');
+    if (!text) return hideTooltip();
+    if (tooltip.textContent !== text) tooltip.textContent = text;
+
+    const dt = Math.min(now - tooltipLastFrame, 100);
+    tooltipLastFrame = now;
+    const destination = tooltipDestination();
+    const smoothing = now < tooltipFlipUntil ? TOOLTIP_FLIP_MS : TOOLTIP_FOLLOW_MS;
+    const k = 1 - Math.exp(-dt / smoothing);
+    tooltipX += (destination.x - tooltipX) * k;
+    tooltipY += (destination.y - tooltipY) * k;
+    renderTooltipPosition();
+
+    const settled = Math.abs(destination.x - tooltipX) < 0.1 && Math.abs(destination.y - tooltipY) < 0.1;
+    if (!settled || tooltipDragging) tooltipFrame = requestAnimationFrame(stepTooltip);
+}
+
+function kickTooltip() {
+    if (!tooltipVisible || tooltipFrame !== null) return;
+    tooltipLastFrame = performance.now();
+    tooltipFrame = requestAnimationFrame(stepTooltip);
 }
 
 function showTooltip() {
+    clearTimeout(tooltipTimer);
     tooltipTimer = null;
     const text = tooltipTarget?.getAttribute('tooltip');
     if (!text || tooltipBlocked) return;
+    clearTimeout(tooltipHideTimer);
+    tooltipHideTimer = null;
     tooltip.textContent = text;
     if (!tooltip.matches(':popover-open')) tooltip.showPopover();
+    tooltipSide = 'right';
+    const start = tooltipDestination();
+    tooltipFlipUntil = 0;
+    tooltipX = start.x;
+    tooltipY = start.y;
+    renderTooltipPosition();
+    tooltipVisible = true;
     tooltip.classList.add('show');
-    placeTooltip();
+    kickTooltip();
 }
 
 function hideTooltip() {
     clearTimeout(tooltipTimer);
     tooltipTimer = null;
+    if (!tooltipVisible) return;
+    tooltipVisible = false;
     tooltip.classList.remove('show');
-    if (tooltip.matches(':popover-open')) tooltip.hidePopover();
+    clearTimeout(tooltipHideTimer);
+    tooltipHideTimer = setTimeout(() => {
+        tooltipHideTimer = null;
+        if (!tooltipVisible && tooltip.matches(':popover-open')) tooltip.hidePopover();
+    }, TOOLTIP_FADE_MS);
+}
+
+function retargetTooltip(target) {
+    hideTooltip();
+    tooltipTarget = target;
+    tooltipBlocked = false;
+    if (target) tooltipTimer = setTimeout(showTooltip, TOOLTIP_DELAY);
 }
 
 function blockTooltip() {
@@ -2382,35 +2463,50 @@ function blockTooltip() {
     tooltipBlocked = true;
 }
 
+function endTooltipDrag(e) {
+    if (!tooltipDragging) return;
+    tooltipDragging = false;
+    const under = document.elementFromPoint(e.clientX, e.clientY)?.closest('[tooltip]') ?? null;
+    if (under !== tooltipTarget) retargetTooltip(under);
+}
+
 document.addEventListener('pointermove', (e) => {
-    tooltipX = e.clientX;
-    tooltipY = e.clientY;
+    tooltipMouseX = e.clientX;
+    tooltipMouseY = e.clientY;
+    if (tooltipDragging) return kickTooltip();
     const target = e.target.closest?.('[tooltip]') ?? null;
-    if (target !== tooltipTarget) {
-        hideTooltip();
-        tooltipTarget = target;
-        tooltipBlocked = false;
-        if (target) tooltipTimer = setTimeout(showTooltip, TOOLTIP_DELAY);
-        return;
-    }
-    if (tooltip.classList.contains('show')) {
-        const text = tooltipTarget.getAttribute('tooltip');
-        if (!text) return hideTooltip();
-        if (tooltip.textContent !== text) tooltip.textContent = text;
-        placeTooltip();
-    }
+    if (target !== tooltipTarget) return retargetTooltip(target);
+    kickTooltip();
 });
 
+document.addEventListener('pointerdown', (e) => {
+    const target = e.target.closest?.('[tooltip]');
+    if (!target || !isSliderTooltip(target)) return blockTooltip();
+    tooltipMouseX = e.clientX;
+    tooltipMouseY = e.clientY;
+    tooltipTarget = target;
+    tooltipBlocked = false;
+    tooltipDragging = true;
+    if (tooltipVisible) kickTooltip();
+    else showTooltip();
+}, true);
+
+document.addEventListener('pointerup', endTooltipDrag, true);
+document.addEventListener('pointercancel', endTooltipDrag, true);
+document.addEventListener('input', kickTooltip, true);
+
 document.addEventListener('mouseout', (e) => {
-    if (e.relatedTarget) return;
+    if (e.relatedTarget || tooltipDragging) return;
     hideTooltip();
     tooltipTarget = null;
 });
 
-document.addEventListener('pointerdown', blockTooltip, true);
 document.addEventListener('keydown', blockTooltip, true);
 document.addEventListener('wheel', blockTooltip, { capture: true, passive: true });
-window.addEventListener('blur', blockTooltip);
+window.addEventListener('blur', () => {
+    tooltipDragging = false;
+    blockTooltip();
+});
 
 function initCustomDropdown(select, trigger) {
     if (select.dataset.customized) return;

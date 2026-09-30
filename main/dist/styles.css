@@ -687,10 +687,10 @@ body.skip-tab-anim #t-settings.sidebar-button.active i {
     pointer-events: none;
     user-select: none;
     opacity: 0;
+    transition: opacity .12s ease;
 }
 .tooltip.show {
     opacity: 1;
-    transition: opacity .1s ease;
 }
 @starting-style {
     .tooltip.show {
