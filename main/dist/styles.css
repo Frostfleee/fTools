@@ -1,13 +1,8 @@
 @import url("fonts/codicon.css");
 @import url("themes.css");
 
-/*——/ Sidebar Icons /————————————————————————————————————————*/
-.icon-qrcode,
-.icon-convert,
-.icon-hold-time,
-.icon-mouse,
-.icon-play,
-.icon-stop {
+/*——/ Icons /————————————————————————————————————————————————*/
+.icon {
     width: var(--icon-size, 22px);
     height: var(--icon-size, 22px);
     -webkit-mask-image: var(--icon);
@@ -25,7 +20,7 @@
     --icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20'><path d='M8.125 3.125h-3.75a1.25 1.25 0 0 0-1.25 1.25v3.75a1.25 1.25 0 0 0 1.25 1.25h3.75a1.25 1.25 0 0 0 1.25-1.25v-3.75a1.25 1.25 0 0 0-1.25-1.25m0 5h-3.75v-3.75h3.75zm0 2.5h-3.75a1.25 1.25 0 0 0-1.25 1.25v3.75a1.25 1.25 0 0 0 1.25 1.25h3.75a1.25 1.25 0 0 0 1.25-1.25v-3.75a1.25 1.25 0 0 0-1.25-1.25m0 5h-3.75v-3.75h3.75zm7.5-12.5h-3.75a1.25 1.25 0 0 0-1.25 1.25v3.75a1.25 1.25 0 0 0 1.25 1.25h3.75a1.25 1.25 0 0 0 1.25-1.25v-3.75a1.25 1.25 0 0 0-1.25-1.25m0 5h-3.75v-3.75h3.75zm-4.375 6.25a.625.625 0 0 0 .625-.625v-2.5a.625.625 0 0 0-1.25 0v2.5a.625.625 0 0 0 .625.625'/><path d='M16.25 11.875h-1.875v-.625a.625.625 0 0 0-1.25 0v4.375H11.25a.625.625 0 1 0 0 1.25h2.5a.625.625 0 0 0 .625-.625v-3.125h1.875a.625.625 0 0 0 0-1.25m0 2.5a.625.625 0 0 0-.625.625v1.25a.625.625 0 0 0 1.25 0V15a.625.625 0 0 0-.625-.625'/></svg>");
 }
 .icon-convert {
-    --icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 22 22' fill='none'><path d='m3.917 11.833-.17-.793A4.167 4.167 0 0 1 7.821 6h9.012m0 0-2.499 2.5m2.5-2.5-2.5-2.5m3.75 6.667.17.793A4.167 4.167 0 0 1 14.18 16H5.167m0 0 2.5-2.5m-2.5 2.5 2.5 2.5' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
+    --icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 22 22' fill='none'><path d='m3.917 11.833-.17-.793A4.167 4.167 0 0 1 7.821 6h9.012m0 0-2.499 2.5m2.5-2.5-2.5-2.5m3.75 6.667.17.793A4.167 4.167 0 0 1 14.18 16H5.167m0 0 2.5-2.5m-2.5 2.5 2.5 2.5' stroke='currentColor' stroke-width='1.4' stroke-linecap='round' stroke-linejoin='round'/></svg>");
 }
 .icon-hold-time {
     --icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 20 20' fill='none'><path d='M15.417 1.667H7.282a.11.11 0 0 0-.091.05L3.275 8.03a1.706 1.706 0 1 0 2.921 1.763l1.026-1.748v8.646a1.643 1.643 0 0 0 3.285 0v-3.887c0-.244.194-.444.438-.452l4.842-.162a.91.91 0 0 0 .88-.91V2.917a1.25 1.25 0 0 0-1.25-1.25' stroke='currentColor' stroke-width='1.5' stroke-linecap='round' stroke-linejoin='round'/></svg>");
@@ -40,6 +35,15 @@
 .icon-stop {
     --icon: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 640'><path d='M160 96L480 96C515.3 96 544 124.7 544 160L544 480C544 515.3 515.3 544 480 544L160 544C124.7 544 96 515.3 96 480L96 160C96 124.7 124.7 96 160 96z'/></svg>");
     --icon-size: 14px;
+}
+.icon-success {
+    --icon: var(--icon-success);
+}
+.icon-warning {
+    --icon: var(--icon-warning);
+}
+.icon-danger {
+    --icon: var(--icon-danger);
 }
 
 /*——/ Noise /————————————————————————————————————————————————*/
@@ -75,6 +79,10 @@ body::after,
     --base-hsl: hsl(var(--hue), var(--sat), calc(var(--light) * 1));
     --clr-dark: color-mix(in srgb, var(--base-hsl) calc((1 - var(--dark)) * 100%), black calc(var(--dark) * 100%));
     --clr-final: color-mix(in srgb, var(--clr-dark) calc(var(--alpha) * 100%), transparent calc((1 - var(--alpha)) * 100%));
+
+    --icon-success: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 640'><path d='M320 576C178.6 576 64 461.4 64 320C64 178.6 178.6 64 320 64C461.4 64 576 178.6 576 320C576 461.4 461.4 576 320 576zM438 209.7C427.3 201.9 412.3 204.3 404.5 215L285.1 379.2L233 327.1C223.6 317.7 208.4 317.7 199.1 327.1C189.8 336.5 189.7 351.7 199.1 361L271.1 433C276.1 438 282.9 440.5 289.9 440C296.9 439.5 303.3 435.9 307.4 430.2L443.3 243.2C451.1 232.5 448.7 217.5 438 209.7z'/></svg>");
+    --icon-warning: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 640'><path d='M320 576C178.6 576 64 461.4 64 320C64 178.6 178.6 64 320 64C461.4 64 576 178.6 576 320C576 461.4 461.4 576 320 576zM320 384C302.3 384 288 398.3 288 416C288 433.7 302.3 448 320 448C337.7 448 352 433.7 352 416C352 398.3 337.7 384 320 384zM320 192C301.8 192 287.3 207.5 288.6 225.7L296 329.7C296.9 342.3 307.4 352 319.9 352C332.5 352 342.9 342.3 343.8 329.7L351.2 225.7C352.5 207.5 338.1 192 319.8 192z'/></svg>");
+    --icon-danger: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 640 640'><path d='M320 576C461.4 576 576 461.4 576 320C576 178.6 461.4 64 320 64C178.6 64 64 178.6 64 320C64 461.4 178.6 576 320 576zM231 231C240.4 221.6 255.6 221.6 264.9 231L319.9 286L374.9 231C384.3 221.6 399.5 221.6 408.8 231C418.1 240.4 418.2 255.6 408.8 264.9L353.8 319.9L408.8 374.9C418.2 384.3 418.2 399.5 408.8 408.8C399.4 418.1 384.2 418.2 374.9 408.8L319.9 353.8L264.9 408.8C255.5 418.2 240.3 418.2 231 408.8C221.7 399.4 221.6 384.2 231 374.9L286 319.9L231 264.9C221.6 255.5 221.6 240.3 231 231z'/></svg>");
 }
 
 *:focus {
@@ -209,6 +217,44 @@ body {
     padding: 0;
     margin: 0;
     overflow: hidden;
+}
+
+/*——/ Background Image /————————————————————————————————————*/
+
+.app-background {
+    display: none;
+    position: fixed;
+    inset: 0;
+    z-index: -2;
+    background-size: cover;
+    background-position: center;
+    background-repeat: no-repeat;
+    filter: blur(4px);
+    transform: scale(1.1);
+    pointer-events: none;
+}
+[theme="transparent"][background-active] .app-background {
+    display: block;
+}
+#app-background-video {
+    display: none;
+    width: 100%;
+    height: 100%;
+    object-fit: cover;
+    pointer-events: none !important;
+    user-select: none;
+}
+[background-media="video"] #app-background-video {
+    display: block;
+}
+[theme="transparent"][background-active] {
+    background-color: #000;
+}
+[theme="transparent"][background-active] .warn,
+[theme="transparent"][background-active] .dropdown-popup {
+    background-color: transparent;
+    backdrop-filter: blur(5px);
+    -webkit-backdrop-filter: blur(5px);
 }
 
 .window {
@@ -472,22 +518,34 @@ body.skip-tab-anim #t-settings.sidebar-button.active i {
     display: inline;
 }
 .warn a::before {
-    font-family: "codicon";
-    margin: 0 9px 0 0;
-    font-size: 16px;
+    content: "";
+    margin: -3px 7px -3px -3px;
     position: relative;
-    top: 1.25px;
+    top: 1.5px;
+    --icon-size: 20px;
+    width: var(--icon-size);
+    height: var(--icon-size);
+    -webkit-mask-image: var(--icon);
+    mask-image: var(--icon);
+    display: inline-block;
+    background-color: currentColor;
+    -webkit-mask-repeat: no-repeat;
+    mask-repeat: no-repeat;
+    -webkit-mask-position: center;
+    mask-position: center;
+    -webkit-mask-size: contain;
+    mask-size: contain;
 }
 .warn a.success::before {
-    content: "\eba4";
+    --icon: var(--icon-success);
     color: var(--t-success);
 }
 .warn a.warning::before {
-    content: "\ea6c";
+    --icon: var(--icon-warning);
     color: var(--t-warning);
 }
 .warn a.danger::before {
-    content: "\ea87";
+    --icon: var(--icon-danger);
     color: var(--t-danger);
 }
 .warn-count {
@@ -1867,6 +1925,38 @@ button#reset.button {
 }
 button#qr-copy-image.button {
     right: 90px;
+}
+.settings-remove {
+    display: none;
+    position: absolute;
+    right: 95px;
+    bottom: 15px;
+    height: 20px;
+    width: 20px;
+    background: none;
+    border: none;
+    padding: 0;
+    margin: 0;
+    border-radius: 20%;
+    transition: 0.1s ease-out;
+    pointer-events: auto;
+    cursor: pointer;
+    color: var(--t-mainColor);
+}
+#s-background-row[has-background] .settings-remove {
+    display: block;
+}
+.settings-remove:hover {
+    background-color: var(--t-clearButtonHover);
+}
+.settings-remove svg {
+    position: absolute;
+    width: 16px;
+    height: 16px;
+    top: 50%;
+    left: 50%;
+    transform: translateX(-50%) translateY(-50%);
+    color: var(--t-contrastColor);
 }
 
 /*——/ Settings /—————————————————————————————————————————————*/

@@ -657,7 +657,9 @@ let appSettings = {
     lastTool: 'fontstyler',
     appTheme: 'dark',
     highContrast: false,
-    hideToolInTitlebar: false
+    hideToolInTitlebar: false,
+    backgroundImagePath: null,
+    backgroundMediaType: 'image'
 };
 
 
@@ -1110,6 +1112,23 @@ function setupMediaPanel() {
         return path.split(/[\\/]/).pop();
     }
 
+    const extraVideoTargets = { gif: ['mp4', 'mov', 'mkv', 'webm'] };
+
+    function applySourceRestrictions(ext) {
+        panel.querySelectorAll('#video option[data-source-locked]').forEach(opt => {
+            opt.disabled = false;
+            delete opt.dataset.sourceLocked;
+        });
+        const allowed = extraVideoTargets[ext];
+        if (!allowed) return;
+        panel.querySelectorAll('#video option').forEach(opt => {
+            if (!opt.disabled && !allowed.includes(opt.value)) {
+                opt.disabled = true;
+                opt.dataset.sourceLocked = '';
+            }
+        });
+    }
+
     function handleFile(name, path) {
         if (!name) return;
 
@@ -1124,9 +1143,11 @@ function setupMediaPanel() {
             return;
         }
 
+        applySourceRestrictions(ext);
         optgroups.forEach(group => {
             const keepEnabled = group === matchingGroup
-                || (matchingGroup.id === 'video' && group.id === 'audio');
+                || (matchingGroup.id === 'video' && group.id === 'audio')
+                || (group.id === 'video' && ext in extraVideoTargets);
             group.disabled = !keepEnabled;
         });
 
@@ -1168,6 +1189,7 @@ function setupMediaPanel() {
         fileNameInput.value = '';
         uploadZone.removeAttribute('data-filename');
 
+        applySourceRestrictions('');
         optgroups.forEach(group => { group.disabled = false; });
         Object.values(typeSvgs).forEach(svg => svg?.removeAttribute('enabled'));
 
@@ -1185,14 +1207,10 @@ function setupMediaPanel() {
 
         uploadZone.addEventListener('click', (e) => {
             e.preventDefault();
-            const supportedExtensions = [...new Set(
-                Array.from(dropdown.querySelectorAll('option')).map(opt => opt.value)
-            )];
             open({
                 multiple: false,
                 directory: false,
-                title: 'Select a file to convert',
-                filters: [{ name: 'Supported files', extensions: supportedExtensions }]
+                title: 'Select a file to convert'
             }).then((path) => {
                 if (!path) return;
                 handleFile(basename(path), path);
@@ -1283,9 +1301,9 @@ function setupMediaPanel() {
             : typeSvgs.audio?.hasAttribute('enabled') ? 'audio'
             : null;
 
-        const targetIsAudio = dropdown.selectedOptions[0]?.closest('optgroup')?.id === 'audio';
-        const effectiveKind = mediaKind === 'video'
-            ? (targetIsAudio ? 'audio' : 'video')
+        const targetGroup = dropdown.selectedOptions[0]?.closest('optgroup')?.id;
+        const effectiveKind = mediaKind === 'video' && targetGroup === 'audio' ? 'audio'
+            : mediaKind === 'image' && targetGroup === 'video' ? 'video'
             : mediaKind;
 
         if (effectiveKind !== 'image' && effectiveKind !== 'audio' && effectiveKind !== 'video') {
@@ -1607,6 +1625,59 @@ function getRowDefault(input) {
     return raw.toLowerCase();
 }
 
+function averageLumaFromSource(drawable, size = 32) {
+    const canvas = document.createElement('canvas');
+    canvas.width = size;
+    canvas.height = size;
+    const ctx = canvas.getContext('2d');
+    ctx.drawImage(drawable, 0, 0, size, size);
+    const { data } = ctx.getImageData(0, 0, size, size);
+    let total = 0;
+    let count = 0;
+    for (let i = 0; i < data.length; i += 4) {
+        const alpha = data[i + 3];
+        if (alpha === 0) continue;
+        total += 0.299 * data[i] + 0.587 * data[i + 1] + 0.114 * data[i + 2];
+        count++;
+    }
+    return count ? total / count : 128;
+}
+
+function getImageBrightness(src) {
+    return new Promise((resolve, reject) => {
+        const img = new Image();
+        img.crossOrigin = 'anonymous';
+        img.onload = () => {
+            try {
+                resolve(averageLumaFromSource(img));
+            } catch (err) {
+                reject(err);
+            }
+        };
+        img.onerror = reject;
+        img.src = src;
+    });
+}
+
+function getVideoBrightness(videoEl) {
+    return new Promise((resolve, reject) => {
+        if (!videoEl) { reject(new Error('No video element')); return; }
+        const sample = () => {
+            try {
+                resolve(averageLumaFromSource(videoEl));
+            } catch (err) {
+                reject(err);
+            }
+        };
+        if (videoEl.readyState >= 2) {
+            sample();
+        } else {
+            videoEl.addEventListener('loadeddata', sample, { once: true });
+            videoEl.addEventListener('error', reject, { once: true });
+        }
+    });
+}
+
 async function setupSettingsPanel() {
     const isTauri = '__TAURI_INTERNALS__' in window;
     const currentWindow = isTauri ? window.__TAURI__.window.getCurrentWindow() : null;
@@ -1618,6 +1689,219 @@ async function setupSettingsPanel() {
     const appThemeInput = document.getElementById('s-app-theme');
     const highContrastInput = document.getElementById('s-high-contrast');
     const hideToolInTitlebarInput = document.getElementById('s-hide-tool-in-titlebar');
+    const backgroundImageButton = document.getElementById('s-background-image');
+    const backgroundRemoveButton = document.getElementById('s-background-remove');
+    const backgroundRow = document.getElementById('s-background-row');
+    const backgroundFileInput = document.getElementById('s-background-file-input');
+    const appBackgroundEl = document.getElementById('app-background');
+    const appBackgroundVideoEl = document.getElementById('app-background-video');
+
+    const BACKGROUND_IMAGE_EXTENSIONS = ['png', 'jpg', 'jpeg', 'bmp', 'gif', 'webp'];
+    const BACKGROUND_VIDEO_EXTENSIONS = ['mp4', 'webm', 'mov', 'm4v', 'ogv'];
+    const BG_BRIGHTNESS_SAMPLE_MS = 400;
+
+    function getExtension(nameOrPath) {
+        return nameOrPath?.split('.').pop()?.toLowerCase() || '';
+    }
+
+    function isVideoPath(path) {
+        return BACKGROUND_VIDEO_EXTENSIONS.includes(getExtension(path));
+    }
+
+    function isImagePath(path) {
+        return BACKGROUND_IMAGE_EXTENSIONS.includes(getExtension(path));
+    }
+
+    function isGifSource(src) {
+        return src.startsWith('data:') ? src.startsWith('data:image/gif') : getExtension(src) === 'gif';
+    }
+
+    // Hard lock: the background video must never show native controls and must
+    // never be reachable by click, double-click, right-click or keyboard.
+    // This is intentionally redundant with the CSS pointer-events:none and the
+    // missing "controls" attribute, since this element is purely decorative.
+    function lockDownBackgroundVideo() {
+        if (!appBackgroundVideoEl) return;
+        appBackgroundVideoEl.controls = false;
+        appBackgroundVideoEl.removeAttribute('controls');
+        appBackgroundVideoEl.crossOrigin = 'anonymous';
+        appBackgroundVideoEl.muted = true;
+        appBackgroundVideoEl.defaultMuted = true;
+        appBackgroundVideoEl.volume = 0;
+        appBackgroundVideoEl.disablePictureInPicture = true;
+        appBackgroundVideoEl.tabIndex = -1;
+    }
+    lockDownBackgroundVideo();
+    appBackgroundVideoEl?.addEventListener('contextmenu', (e) => e.preventDefault());
+    appBackgroundVideoEl?.addEventListener('keydown', (e) => e.preventDefault());
+    appBackgroundVideoEl?.addEventListener('dblclick', (e) => e.preventDefault());
+    appBackgroundVideoEl?.addEventListener('click', (e) => e.preventDefault());
+
+    // Keeps bg-brightness live for content that changes over time (animated
+    // GIFs, playing video) instead of sampling once and going stale.
+    let bgBrightnessTimer = null;
+    let bgSampleImg = null;
+
+    // Remembers what the background currently is so it can resume seamlessly
+    // when the theme switches back to "transparent" without recomputing the
+    // Tauri file path or re-reading the file input.
+    let currentBgSrc = null;
+    let currentBgIsVideo = false;
+
+    // The background layer (image/video/GIF luma sampling) is only ever
+    // visible in the "transparent" theme (see .app-background in styles.css).
+    // In every other theme it is fully hidden, so there is no reason to keep
+    // decoding video frames or re-sampling brightness for it.
+    function isTransparentTheme() {
+        return appSettings.appTheme === 'transparent';
+    }
+
+    function updateBgBrightness(brightness) {
+        withNoTransition(() => {
+            document.body.setAttribute('bg-brightness', brightness > 140 ? 'light' : 'dark');
+        });
+    }
+
+    function clearBgBrightness() {
+        withNoTransition(() => {
+            document.body.removeAttribute('bg-brightness');
+        });
+    }
+
+    function stopBgBrightnessLoop() {
+        if (bgBrightnessTimer) {
+            clearInterval(bgBrightnessTimer);
+            bgBrightnessTimer = null;
+        }
+        if (bgSampleImg) {
+            bgSampleImg.src = '';
+        }
+        bgSampleImg = null;
+    }
+
+    // Performance mode: called whenever the theme leaves "transparent". The
+    // background layer is already hidden by CSS at that point, so this stops
+    // the invisible work behind it: the brightness polling loop, the hidden
+    // GIF sampler image, and (unlike an off-screen GIF) the background video,
+    // which keeps decoding frames even while hidden unless paused explicitly.
+    function pauseBackgroundForPerformance() {
+        stopBgBrightnessLoop();
+        clearBgBrightness();
+        appBackgroundVideoEl?.pause();
+    }
+
+    // Called whenever the theme returns to "transparent". Resumes exactly
+    // what was showing before, from currentBgSrc, so the switch is seamless.
+    function resumeBackgroundForPerformance() {
+        if (!currentBgSrc) return;
+        if (currentBgIsVideo && appBackgroundVideoEl) {
+            appBackgroundVideoEl.play().catch((err) => console.error('Background video could not resume:', err));
+            startVideoBrightnessTracking(appBackgroundVideoEl);
+        } else if (!currentBgIsVideo) {
+            startImageBrightnessTracking(currentBgSrc);
+        }
+    }
+
+    function startImageBrightnessTracking(src) {
+        getImageBrightness(src)
+            .then(updateBgBrightness)
+            .catch((err) => {
+                console.error('Could not read background image brightness:', err);
+                clearBgBrightness();
+            });
+
+        if (!isGifSource(src)) return;
+
+        bgSampleImg = new Image();
+        bgSampleImg.crossOrigin = 'anonymous';
+        bgSampleImg.src = src;
+        bgBrightnessTimer = setInterval(() => {
+            if (!bgSampleImg || !bgSampleImg.complete || !bgSampleImg.naturalWidth) return;
+            try {
+                updateBgBrightness(averageLumaFromSource(bgSampleImg));
+            } catch (err) {
+                // Ignore transient decode errors between GIF frames.
+            }
+        }, BG_BRIGHTNESS_SAMPLE_MS);
+    }
+
+    function startVideoBrightnessTracking(videoEl) {
+        getVideoBrightness(videoEl)
+            .then(updateBgBrightness)
+            .catch((err) => {
+                console.error('Could not read background video brightness:', err);
+                clearBgBrightness();
+            });
+
+        bgBrightnessTimer = setInterval(() => {
+            if (videoEl.paused || videoEl.readyState < 2) return;
+            try {
+                updateBgBrightness(averageLumaFromSource(videoEl));
+            } catch (err) {
+                // Ignore transient decode errors mid-seek.
+            }
+        }, BG_BRIGHTNESS_SAMPLE_MS);
+    }
+
+    function applyBackgroundMedia() {
+        if (!appBackgroundEl) return;
+        stopBgBrightnessLoop();
+        const path = appSettings.backgroundImagePath;
+        const isVideo = appSettings.backgroundMediaType === 'video';
+
+        if (!path) {
+            currentBgSrc = null;
+            currentBgIsVideo = false;
+            appBackgroundEl.style.backgroundImage = '';
+            if (appBackgroundVideoEl) {
+                appBackgroundVideoEl.pause();
+                appBackgroundVideoEl.removeAttribute('src');
+                appBackgroundVideoEl.load();
+            }
+            document.body.removeAttribute('background-active');
+            document.body.removeAttribute('background-media');
+            clearBgBrightness();
+            backgroundRow?.removeAttribute('has-background');
+            if (backgroundRemoveButton) backgroundRemoveButton.tabIndex = -1;
+            return;
+        }
+
+        const src = isTauri
+            ? window.__TAURI__.core.convertFileSrc(path)
+            : path;
+        currentBgSrc = src;
+        currentBgIsVideo = isVideo;
+        document.body.setAttribute('background-active', '');
+        backgroundRow?.setAttribute('has-background', '');
+        if (backgroundRemoveButton) backgroundRemoveButton.tabIndex = 0;
+
+        if (isVideo && appBackgroundVideoEl) {
+            appBackgroundEl.style.backgroundImage = '';
+            document.body.setAttribute('background-media', 'video');
+            lockDownBackgroundVideo();
+            appBackgroundVideoEl.src = src;
+            appBackgroundVideoEl.load();
+            if (isTransparentTheme()) {
+                appBackgroundVideoEl.play().catch((err) => console.error('Background video could not autoplay:', err));
+                startVideoBrightnessTracking(appBackgroundVideoEl);
+            } else {
+                // load() can otherwise re-trigger the <video autoplay> HTML
+                // attribute; keep it frozen since it isn't visible here.
+                appBackgroundVideoEl.pause();
+            }
+        } else {
+            document.body.setAttribute('background-media', 'image');
+            if (appBackgroundVideoEl) {
+                appBackgroundVideoEl.pause();
+                appBackgroundVideoEl.removeAttribute('src');
+                appBackgroundVideoEl.load();
+            }
+            appBackgroundEl.style.backgroundImage = `url("${src}")`;
+            if (isTransparentTheme()) {
+                startImageBrightnessTracking(src);
+            }
+        }
+    }
 
     const saved = await loadAppSettings();
     appSettings = {
@@ -1628,7 +1912,9 @@ async function setupSettingsPanel() {
         lastTool: saved.lastTool || 'fontstyler',
         appTheme: saved.appTheme || getRowDefault(appThemeInput) || 'dark',
         highContrast: saved.highContrast ?? getRowDefault(highContrastInput) ?? false,
-        hideToolInTitlebar: saved.hideToolInTitlebar ?? getRowDefault(hideToolInTitlebarInput) ?? false
+        hideToolInTitlebar: saved.hideToolInTitlebar ?? getRowDefault(hideToolInTitlebarInput) ?? false,
+        backgroundImagePath: saved.backgroundImagePath ?? null,
+        backgroundMediaType: saved.backgroundMediaType ?? 'image'
     };
 
     if (alwaysOnTopInput) alwaysOnTopInput.checked = appSettings.alwaysOnTop;
@@ -1646,6 +1932,8 @@ async function setupSettingsPanel() {
         document.body.setAttribute('theme', appSettings.appTheme);
         document.body.toggleAttribute('contrast', appSettings.highContrast);
     });
+
+    applyBackgroundMedia();
 
     if (currentWindow && appSettings.alwaysOnTop) {
         currentWindow.setAlwaysOnTop(true).catch((err) => console.error('Could not set always-on-top:', err));
@@ -1674,11 +1962,17 @@ async function setupSettingsPanel() {
     });
 
     appThemeInput?.addEventListener('change', () => {
+        const previousTheme = appSettings.appTheme;
         appSettings.appTheme = appThemeInput.value;
         saveAppSettings(appSettings);
         withNoTransition(() => {
             document.body.setAttribute('theme', appThemeInput.value);
         });
+        if (previousTheme === 'transparent' && appThemeInput.value !== 'transparent') {
+            pauseBackgroundForPerformance();
+        } else if (previousTheme !== 'transparent' && appThemeInput.value === 'transparent') {
+            resumeBackgroundForPerformance();
+        }
     });
 
     highContrastInput?.addEventListener('change', () => {
@@ -1693,6 +1987,73 @@ async function setupSettingsPanel() {
         appSettings.hideToolInTitlebar = hideToolInTitlebarInput.checked;
         saveAppSettings(appSettings);
         updateWindowTitle(currentPanelId);
+    });
+
+    backgroundImageButton?.addEventListener('click', () => {
+        if (isTauri) {
+            const { open } = window.__TAURI__.dialog;
+            open({
+                multiple: false,
+                directory: false,
+                title: 'Select a background image or video'
+            }).then((path) => {
+                if (!path) return;
+                if (isVideoPath(path)) {
+                    appSettings.backgroundMediaType = 'video';
+                } else if (isImagePath(path)) {
+                    appSettings.backgroundMediaType = 'image';
+                } else {
+                    doFileInvalid();
+                    return;
+                }
+                appSettings.backgroundImagePath = path;
+                saveAppSettings(appSettings);
+                applyBackgroundMedia();
+            }).catch((err) => console.error('Background media dialog failed:', err));
+        } else {
+            backgroundFileInput?.click();
+        }
+    });
+
+    backgroundFileInput?.addEventListener('change', () => {
+        const file = backgroundFileInput.files?.[0];
+        if (!file) return;
+        const ext = getExtension(file.name);
+        const isVideo = BACKGROUND_VIDEO_EXTENSIONS.includes(ext);
+        const isImage = BACKGROUND_IMAGE_EXTENSIONS.includes(ext);
+        if (!isVideo && !isImage) {
+            doFileInvalid();
+            backgroundFileInput.value = '';
+            return;
+        }
+        const reader = new FileReader();
+        reader.onload = () => {
+            appSettings.backgroundImagePath = reader.result;
+            appSettings.backgroundMediaType = isVideo ? 'video' : 'image';
+            saveAppSettings(appSettings);
+            applyBackgroundMedia();
+        };
+        reader.onerror = () => {
+            doFileInvalid();
+        };
+        reader.readAsDataURL(file);
+        backgroundFileInput.value = '';
+    });
+
+    backgroundRemoveButton?.addEventListener('click', (e) => {
+        e.preventDefault();
+        e.stopPropagation();
+        appSettings.backgroundImagePath = null;
+        appSettings.backgroundMediaType = 'image';
+        saveAppSettings(appSettings);
+        applyBackgroundMedia();
+    }, { capture: true });
+
+    backgroundRemoveButton?.addEventListener('keydown', (e) => {
+        if (e.key !== 'Enter' && e.key !== ' ') return;
+        e.preventDefault();
+        e.stopPropagation();
+        backgroundRemoveButton.click();
     });
 
     currentWindow?.onFocusChanged(({ payload: focused }) => {
@@ -2483,7 +2844,7 @@ function renderAcActionList() {
         const item = document.createElement('div');
         item.className = 'ac-action-item';
         const icon = document.createElement('i');
-        icon.className = action.type === 'keyboard' ? 'codicon codicon-keyboard' : 'icon-mouse';
+        icon.className = action.type === 'keyboard' ? 'codicon codicon-keyboard' : 'icon icon-mouse';
         const type = document.createElement('span');
         type.className = 'ac-action-type';
         type.textContent = action.type === 'keyboard' ? 'Keyboard' : 'Mouse';
