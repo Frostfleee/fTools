@@ -584,8 +584,8 @@ function doFileInvalid() {
     triggerWarn('file-invalid');
 }
 
-function doFileSaved() {
-    triggerWarn('file-saved');
+function doFileSaved(message) {
+    triggerWarn('file-saved', message);
 }
 
 function doFileCorrupted(message) {
@@ -1015,13 +1015,30 @@ function setupMediaPanel() {
     const fileNameInput = panel.querySelector('.input-box');
     const dropdown = panel.querySelector('.dropdown');
     const optgroups = panel.querySelectorAll('.dropdown optgroup');
-    const resetButton = panel.querySelector('#reset.button');
+    const stripName = panel.querySelector('#file-strip-name');
+    const stripMeta = panel.querySelector('#file-strip-meta');
+    const summaryEl = panel.querySelector('#file-summary');
+    const metadataToggle = panel.querySelector('#o-metadata');
+    const batchCount = panel.querySelector('#batch-count');
+    const batchSize = panel.querySelector('#batch-size');
+    const batchList = panel.querySelector('#batch-list');
+    const setAllSelect = panel.querySelector('#batch-set-all');
+    const setAllButton = panel.querySelector('#batch-set-all-button');
+    const batchAddButton = panel.querySelector('#batch-add');
+    const batchClearButton = panel.querySelector('#batch-clear');
     const proceedButton = panel.querySelector('#proceed.button');
     const uploadZone = panel.querySelector('.file-upload-zone');
     const unattachButton = panel.querySelector('.unattach-file');
     const metadataCheckbox = panel.querySelector('#o-metadata input');
     const preserveCheckbox = panel.querySelector('#o-preserve input');
     const overwriteCheckbox = panel.querySelector('#o-overwrite input');
+    const outputFolderButton = panel.querySelector('#output-folder');
+    const outputFolderLabel = panel.querySelector('#output-folder-label');
+    const outputFolderClear = panel.querySelector('#output-folder-clear');
+    const qualitySelect = panel.querySelector('#o-quality');
+    const qualityWrap = panel.querySelector('#o-quality-wrap');
+    const lossyTargets = new Set(['mp3', 'ogg', 'opus', 'm4a', 'aac', 'jpg', 'jpeg', 'avif', 'heic', 'mp4', 'mov', 'webm', 'flv', 'avi', 'wmv', 'wma']);
+    const remuxOnly = new Set(['mp4', 'mov']);
     const typeSvgs = {
         image: panel.querySelector('.image-svg'),
         video: panel.querySelector('.video-svg'),
@@ -1030,6 +1047,15 @@ function setupMediaPanel() {
 
     const loadingPanel = document.getElementById('loading-screen');
     const loadingBarFill = loadingPanel?.querySelector('.loading-bar-fill');
+    const loadingCancel = document.getElementById('loading-cancel');
+    const loadingCancelLabel = loadingCancel?.querySelector('span');
+    let cancelConversion = null;
+
+    loadingCancel?.addEventListener('click', () => cancelConversion?.());
+
+    document.addEventListener('keydown', (e) => {
+        if (e.key === 'Escape' && loadingPanel?.classList.contains('show')) cancelConversion?.();
+    });
     const windowEl = document.querySelector('.window');
     const sidebarEl = document.querySelector('.sidebar');
 
@@ -1080,6 +1106,8 @@ function setupMediaPanel() {
     let originalFileName = '';
     let originalExtension = '';
     let originalFilePath = null;
+    let selectedFiles = [];
+    let outputDir = null;
     let userTypedBeforeUpload = false;
 
     fileNameInput.addEventListener('input', () => {
@@ -1088,22 +1116,177 @@ function setupMediaPanel() {
         }
     });
 
+    function setOutputDir(dir) {
+        outputDir = dir || null;
+        const name = outputDir ? basename(outputDir.replace(/[\\/]+$/, '')) || outputDir : 'Same folder';
+        outputFolderLabel.textContent = name;
+        outputFolderButton.classList.toggle('custom', !!outputDir);
+        outputFolderButton.setAttribute('tooltip', outputDir ? `Save to ${outputDir}` : 'Save next to the original file');
+        updateSummary();
+    }
+
+    function setQuality(value) {
+        qualitySelect.value = ['low', 'medium', 'high', 'best'].includes(value) ? value : 'high';
+        qualitySelect.__dropdownSync?.();
+    }
+
+    function currentPairs() {
+        const batch = selectedFiles.length > 1;
+        return selectedFiles.map(file => ({ file, target: batch ? file.target : dropdown.value.toLowerCase() }));
+    }
+
+    function updateQualityVisibility() {
+        const show = currentPairs().some(({ file, target }) =>
+            lossyTargets.has(target) && !(remuxOnly.has(target) && remuxOnly.has(file.ext)));
+        qualityWrap.classList.toggle('hidden', !show);
+    }
+
+    function refreshOptions() {
+        updateQualityVisibility();
+        const metadataApplies = currentPairs().some(({ file, target }) =>
+            kindOf(file) === 'image' && targetGroupOf(file, target) === 'image');
+        metadataToggle.classList.toggle('disabled', !metadataApplies);
+        metadataCheckbox.disabled = !metadataApplies;
+        metadataToggle.setAttribute('tooltip', metadataApplies ? 'Keep metadata' : 'Keep metadata (images only)');
+        updateSummary();
+    }
+
+    function updateSummary() {
+        if (selectedFiles.length !== 1) {
+            summaryEl.textContent = '';
+            summaryEl.removeAttribute('tooltip');
+            return;
+        }
+        const target = dropdown.value.toLowerCase();
+        if (selectedFiles[0].ext === target) {
+            summaryEl.textContent = `Pick a format other than ${target.toUpperCase()}`;
+            summaryEl.removeAttribute('tooltip');
+            return;
+        }
+        const where = outputDir ? `in “${outputFolderLabel.textContent}”` : 'next to the original';
+        const parts = [`Saves “${fileNameInput.value.trim() || originalFileName}.${target}” ${where}`];
+        if (!metadataCheckbox.disabled && metadataCheckbox.checked) parts.push('keeps metadata');
+        if (preserveCheckbox.checked) parts.push('keeps the original date');
+        if (overwriteCheckbox.checked) parts.push('deletes the original');
+        summaryEl.textContent = parts.join(' · ');
+        summaryEl.setAttribute('tooltip', summaryEl.textContent);
+    }
+
+    const kindNames = { image: 'Image', video: 'Video', audio: 'Audio' };
+    const kindPlurals = { image: 'All images', video: 'All videos', audio: 'All audio' };
+    let describeToken = 0;
+
+    function formatSize(bytes) {
+        if (bytes < 1024) return `${bytes} B`;
+        const units = ['KB', 'MB', 'GB', 'TB'];
+        let value = bytes / 1024;
+        let unit = 0;
+        while (value >= 1024 && unit < units.length - 1) {
+            value /= 1024;
+            unit++;
+        }
+        return `${value < 10 ? value.toFixed(1) : Math.round(value)} ${units[unit]}`;
+    }
+
+    function formatDuration(ms) {
+        const total = Math.round(ms / 1000);
+        const hours = Math.floor(total / 3600);
+        const minutes = Math.floor((total % 3600) / 60);
+        const seconds = String(total % 60).padStart(2, '0');
+        return hours ? `${hours}:${String(minutes).padStart(2, '0')}:${seconds}` : `${minutes}:${seconds}`;
+    }
+
+    function metaParts(file) {
+        const info = file.info;
+        return [
+            info?.width && info?.height ? `${info.width}×${info.height}` : null,
+            info?.durationMs ? formatDuration(info.durationMs) : null,
+            info?.size != null ? formatSize(info.size) : null
+        ].filter(Boolean);
+    }
+
+    function renderDescriptions() {
+        if (selectedFiles.length === 1) {
+            const [file] = selectedFiles;
+            stripName.textContent = file.name;
+            stripName.setAttribute('tooltip', file.name);
+            stripMeta.textContent = [kindNames[kindOf(file)] || 'File', ...metaParts(file)].join(' · ');
+            return;
+        }
+        batchCount.textContent = `${selectedFiles.length} files`;
+        const sizes = selectedFiles.map(file => file.info?.size).filter(size => size != null);
+        batchSize.textContent = sizes.length ? `· ${formatSize(sizes.reduce((sum, size) => sum + size, 0))}` : '';
+        selectedFiles.forEach((file) => {
+            if (!file.rowName) return;
+            const parts = metaParts(file);
+            file.rowLabel.textContent = displayName(file);
+            file.rowMeta.textContent = parts.length ? `· ${parts.join(' · ')}` : '';
+            file.rowName.setAttribute('tooltip', [file.rowLabel.textContent, file.rowMeta.textContent].filter(Boolean).join(' '));
+        });
+    }
+
+    async function describeFiles() {
+        const token = ++describeToken;
+        renderDescriptions();
+        const pending = selectedFiles.filter(file => file.path && file.info === undefined);
+        if (!isTauri || !pending.length) return;
+        const info = await window.__TAURI__.core.invoke('media_info', { paths: pending.map(file => file.path) }).catch(() => null);
+        if (!Array.isArray(info)) return;
+        pending.forEach((file, i) => { file.info = info[i] || null; });
+        if (token === describeToken) renderDescriptions();
+    }
+
     loadSettings().then((settings) => {
         metadataCheckbox.checked = !!settings.keep_metadata;
         preserveCheckbox.checked = !!settings.preserve_date;
         overwriteCheckbox.checked = !!settings.overwrite;
+        setOutputDir(settings.output_dir);
+        setQuality(settings.quality);
     });
 
     function persistCheckboxState() {
         saveSettings({
             keep_metadata: metadataCheckbox.checked,
             preserve_date: preserveCheckbox.checked,
-            overwrite: overwriteCheckbox.checked
+            overwrite: overwriteCheckbox.checked,
+            output_dir: outputDir,
+            quality: qualitySelect.value
         });
     }
 
+    qualitySelect.addEventListener('change', persistCheckboxState);
+    dropdown.addEventListener('change', () => {
+        if (selectedFiles.length === 1) selectedFiles[0].target = dropdown.value.toLowerCase();
+        refreshOptions();
+    });
+    fileNameInput.addEventListener('input', updateSummary);
+
+    outputFolderButton.addEventListener('click', (e) => {
+        if (outputFolderClear.contains(e.target)) {
+            setOutputDir(null);
+            persistCheckboxState();
+            return;
+        }
+        if (!isTauri) return;
+        window.__TAURI__.dialog.open({
+            directory: true,
+            multiple: false,
+            defaultPath: outputDir || undefined,
+            title: 'Choose where to save converted files'
+        }).then((dir) => {
+            if (!dir) return;
+            setOutputDir(dir);
+            persistCheckboxState();
+        }).catch((err) => {
+            console.error('Folder dialog failed:', err);
+        });
+    });
+
     [metadataCheckbox, preserveCheckbox, overwriteCheckbox].forEach((checkbox) => {
-        checkbox.addEventListener('change', persistCheckboxState);
+        checkbox.addEventListener('change', () => {
+            persistCheckboxState();
+            updateSummary();
+        });
     });
 
     function getExtension(filename) {
@@ -1120,7 +1303,7 @@ function setupMediaPanel() {
         return path.split(/[\\/]/).pop();
     }
 
-    const extraVideoTargets = { gif: ['mp4', 'mov', 'mkv', 'webm'] };
+    const extraVideoTargets = { gif: ['mp4', 'mov', 'mkv', 'webm', 'avi', 'wmv', 'flv'] };
 
     function applySourceRestrictions(ext) {
         panel.querySelectorAll('#video option[data-source-locked]').forEach(opt => {
@@ -1137,70 +1320,315 @@ function setupMediaPanel() {
         });
     }
 
-    function handleFile(name, path) {
-        if (!name) return;
-
-        const ext = getExtension(name);
-        const matchingGroup = Array.from(optgroups).find(group =>
+    function groupForExtension(ext) {
+        return Array.from(optgroups).find(group =>
             Array.from(group.querySelectorAll('option')).some(opt => opt.value.toLowerCase() === ext)
         );
+    }
 
-        if (!matchingGroup) {
+    const sameFormat = { jpg: 'jpeg', jpeg: 'jpg' };
+
+    function kindOf(file) {
+        return groupForExtension(file.ext)?.id;
+    }
+
+    function allowedGroupIds(file) {
+        const ids = new Set([kindOf(file)]);
+        if (kindOf(file) === 'video') ids.add('audio');
+        if (file.ext in extraVideoTargets) ids.add('video');
+        return ids;
+    }
+
+    function allowedTargets(file) {
+        const ids = allowedGroupIds(file);
+        const locked = extraVideoTargets[file.ext];
+        const targets = [];
+        optgroups.forEach((group) => {
+            if (!ids.has(group.id)) return;
+            group.querySelectorAll('option').forEach((opt) => {
+                if (opt.disabled && !('sourceLocked' in opt.dataset)) return;
+                if (group.id === 'video' && locked && !locked.includes(opt.value)) return;
+                if (opt.value === file.ext) return;
+                targets.push({ value: opt.value, label: opt.textContent, group: group.id });
+            });
+        });
+        return targets;
+    }
+
+    function targetGroupOf(file, target) {
+        const own = kindOf(file);
+        const ownGroup = Array.from(optgroups).find(group => group.id === own);
+        if (ownGroup && Array.from(ownGroup.querySelectorAll('option')).some(opt => opt.value === target)) return own;
+        return own === 'video' ? 'audio' : 'video';
+    }
+
+    function conversionKindOf(file, target) {
+        const group = targetGroupOf(file, target);
+        return group === 'audio' || group === 'video' ? group : 'image';
+    }
+
+    function fileKey(file) {
+        return (file.path || file.name).toLowerCase();
+    }
+
+    function baseNameOf(file) {
+        return file.outputName || stripExtension(file.name);
+    }
+
+    function displayName(file) {
+        return file.ext ? `${baseNameOf(file)}.${file.ext}` : baseNameOf(file);
+    }
+
+    function startRename(file) {
+        if (file.renaming || !file.rowName) return;
+        file.renaming = true;
+        const nameEl = file.rowName;
+        const input = document.createElement('input');
+        input.className = 'batch-row-rename';
+        input.value = baseNameOf(file);
+        input.spellcheck = false;
+        input.setAttribute('aria-label', `New name for ${file.name}`);
+
+        const finish = (commit) => {
+            if (!file.renaming) return;
+            file.renaming = false;
+            if (commit) {
+                const value = input.value.replace(/[\\/:*?"<>|]/g, '').trim();
+                file.outputName = value && value !== stripExtension(file.name) ? value : '';
+            }
+            const hadFocus = document.activeElement === input;
+            input.remove();
+            nameEl.hidden = false;
+            renderDescriptions();
+            if (hadFocus) file.rowLabel?.focus({ focusVisible: usingKeyboard });
+        };
+        input.addEventListener('keydown', (e) => {
+            if (e.key === 'Enter') {
+                e.preventDefault();
+                finish(true);
+            } else if (e.key === 'Escape') {
+                e.preventDefault();
+                e.stopPropagation();
+                finish(false);
+            }
+        });
+        input.addEventListener('blur', () => finish(true));
+
+        nameEl.hidden = true;
+        nameEl.after(input);
+        input.focus();
+        input.select();
+    }
+
+    function showSingle(file, fromBatch) {
+        applySourceRestrictions(file.ext);
+        const ids = allowedGroupIds(file);
+        optgroups.forEach(group => { group.disabled = !ids.has(group.id); });
+        dropdown.value = file.target;
+        dropdown.__dropdownSync?.();
+
+        Object.entries(typeSvgs).forEach(([type, svg]) => {
+            if (!svg) return;
+            if (type === kindOf(file)) svg.setAttribute('enabled', '');
+            else svg.removeAttribute('enabled');
+        });
+
+        originalFileName = stripExtension(file.name);
+        originalExtension = file.ext;
+        originalFilePath = file.path;
+        if (fromBatch || !userTypedBeforeUpload) fileNameInput.value = baseNameOf(file);
+    }
+
+    function clearBatchRows() {
+        selectedFiles.forEach((file) => {
+            file.rowSelect?.__dropdownPopup?.remove();
+            file.renaming = false;
+            delete file.rowSelect;
+            delete file.rowName;
+            delete file.rowLabel;
+            delete file.rowMeta;
+        });
+        batchList.innerHTML = '';
+    }
+
+    function buildSetAllOptions() {
+        setAllSelect.innerHTML = '';
+        ['image', 'video', 'audio'].forEach((kind) => {
+            const files = selectedFiles.filter(file => kindOf(file) === kind);
+            if (!files.length) return;
+            const group = document.createElement('optgroup');
+            const header = new Option(kindPlurals[kind], `header-${kind}`);
+            header.disabled = true;
+            header.dataset.header = '';
+            group.appendChild(header);
+            const seen = new Set();
+            files.forEach(file => allowedTargets(file).forEach((target) => {
+                if (seen.has(target.value)) return;
+                seen.add(target.value);
+                group.appendChild(new Option(target.label, `${kind}|${target.value}`));
+            }));
+            setAllSelect.appendChild(group);
+        });
+        setAllSelect.selectedIndex = -1;
+    }
+
+    let setAllReady = false;
+
+    function renderBatch() {
+        if (!setAllReady) {
+            setAllReady = true;
+            initCustomDropdown(setAllSelect, setAllButton);
+        }
+        clearBatchRows();
+        selectedFiles.forEach((file, index) => {
+            const row = document.createElement('div');
+            row.className = 'batch-row';
+
+            const icon = document.createElement('span');
+            icon.className = 'batch-row-icon';
+            const svg = typeSvgs[kindOf(file)]?.cloneNode(true);
+            if (svg) {
+                svg.removeAttribute('enabled');
+                svg.removeAttribute('class');
+                icon.appendChild(svg);
+            }
+
+            const name = document.createElement('div');
+            name.className = 'batch-row-name';
+            const label = document.createElement('span');
+            label.className = 'batch-row-label';
+            label.tabIndex = 0;
+            label.setAttribute('role', 'button');
+            label.setAttribute('aria-label', `Rename ${file.name}`);
+            label.textContent = displayName(file);
+            label.addEventListener('click', () => startRename(file));
+            label.addEventListener('keydown', (e) => {
+                if (e.key === 'Enter' || e.key === 'F2') {
+                    e.preventDefault();
+                    startRename(file);
+                }
+            });
+            const meta = document.createElement('span');
+            meta.className = 'batch-row-meta';
+            name.append(label, meta);
+
+            const select = document.createElement('select');
+            select.className = 'dropdown';
+            select.setAttribute('aria-label', `Output format for ${file.name}`);
+            const groups = {};
+            allowedTargets(file).forEach((target) => {
+                if (!groups[target.group]) {
+                    groups[target.group] = document.createElement('optgroup');
+                    select.appendChild(groups[target.group]);
+                }
+                groups[target.group].appendChild(new Option(target.label, target.value));
+            });
+            select.value = file.target;
+            select.addEventListener('change', () => {
+                file.target = select.value;
+                refreshOptions();
+            });
+
+            const remove = document.createElement('button');
+            remove.type = 'button';
+            remove.className = 'batch-row-remove';
+            remove.setAttribute('aria-label', `Remove ${file.name}`);
+            remove.setAttribute('tooltip', 'Remove file');
+            remove.innerHTML = '<i class="codicon codicon-close"></i>';
+            remove.addEventListener('click', () => removeFile(index));
+
+            row.append(icon, name, select, remove);
+            batchList.appendChild(row);
+            initCustomDropdown(select);
+            file.rowSelect = select;
+            file.rowName = name;
+            file.rowLabel = label;
+            file.rowMeta = meta;
+        });
+        buildSetAllOptions();
+    }
+
+    function renderFiles(fromBatch) {
+        const batch = selectedFiles.length > 1;
+        panel.toggleAttribute('batch', batch);
+        panel.removeAttribute('toupload');
+        uploadZone.tabIndex = -1;
+        if (unattachButton) unattachButton.tabIndex = 0;
+        if (batch) {
+            renderBatch();
+        } else {
+            clearBatchRows();
+            showSingle(selectedFiles[0], fromBatch);
+        }
+        refreshOptions();
+        describeFiles();
+    }
+
+    function handleFiles(entries, append) {
+        const incoming = entries
+            .filter(entry => entry?.name)
+            .map(entry => ({ name: entry.name, path: entry.path, ext: getExtension(entry.name) }));
+        if (!incoming.length) return;
+        if (incoming.some(file => !groupForExtension(file.ext))) {
             doFileInvalid();
             if (fileInput) fileInput.value = '';
             return;
         }
 
-        applySourceRestrictions(ext);
-        optgroups.forEach(group => {
-            const keepEnabled = group === matchingGroup
-                || (matchingGroup.id === 'video' && group.id === 'audio')
-                || (group.id === 'video' && ext in extraVideoTargets);
-            group.disabled = !keepEnabled;
-        });
-
-        const firstUsable = (group) => Array.from(group.querySelectorAll('option')).find(opt => !opt.disabled);
-        const defaultOption = firstUsable(matchingGroup)
-            || (matchingGroup.id === 'video' ? firstUsable(panel.querySelector('#audio')) : null);
-        if (defaultOption) {
-            dropdown.value = defaultOption.value;
-            dropdown.__dropdownSync?.();
+        const keep = append ? selectedFiles : [];
+        if (!append) clearBatchRows();
+        if (keep.length === 1) {
+            keep[0].target = dropdown.value.toLowerCase();
+            const typed = fileNameInput.value.replace(/[\\/:*?"<>|]/g, '').trim();
+            keep[0].outputName = typed && typed !== stripExtension(keep[0].name) ? typed : '';
         }
-
-        Object.entries(typeSvgs).forEach(([type, svg]) => {
-            if (!svg) return;
-            if (type === matchingGroup.id) svg.setAttribute('enabled', '');
-            else svg.removeAttribute('enabled');
+        const known = new Set(keep.map(fileKey));
+        const added = incoming.filter((file) => {
+            if (known.has(fileKey(file))) return false;
+            known.add(fileKey(file));
+            file.target = allowedTargets(file).find(target => target.value !== sameFormat[file.ext])?.value || file.ext;
+            return true;
         });
+        if (append && !added.length) return;
 
-        originalFileName = stripExtension(name);
-        originalExtension = ext;
-        originalFilePath = path;
-        if (!userTypedBeforeUpload) {
-            fileNameInput.value = originalFileName;
+        const wasEmpty = !selectedFiles.length || !append;
+        selectedFiles = [...keep, ...added];
+        renderFiles(false);
+        if (wasEmpty && document.activeElement === uploadZone) {
+            (selectedFiles.length > 1 ? batchAddButton : fileNameInput).focus();
         }
-        uploadZone.setAttribute('data-filename', name);
+    }
 
-        panel.removeAttribute('toupload');
-        if (document.activeElement === uploadZone) fileNameInput.focus();
-        uploadZone.tabIndex = -1;
-        if (unattachButton) unattachButton.tabIndex = 0;
+    function removeFile(index) {
+        const [removed] = selectedFiles.splice(index, 1);
+        removed?.rowSelect?.__dropdownPopup?.remove();
+        if (!selectedFiles.length) {
+            clearFile();
+            return;
+        }
+        renderFiles(true);
     }
 
     function clearFile() {
+        clearBatchRows();
         originalFileName = '';
         originalExtension = '';
         originalFilePath = null;
+        selectedFiles = [];
         userTypedBeforeUpload = false;
 
         if (fileInput) fileInput.value = '';
         fileNameInput.value = '';
-        uploadZone.removeAttribute('data-filename');
+        describeToken++;
+        stripName.textContent = '';
+        stripMeta.textContent = '';
+        updateSummary();
 
         applySourceRestrictions('');
         optgroups.forEach(group => { group.disabled = false; });
         Object.values(typeSvgs).forEach(svg => svg?.removeAttribute('enabled'));
 
+        panel.removeAttribute('batch');
         panel.setAttribute('toupload', '');
         uploadZone.tabIndex = 0;
         if (unattachButton) {
@@ -1209,22 +1637,47 @@ function setupMediaPanel() {
         }
     }
 
+    setAllSelect.addEventListener('change', () => {
+        const [kind, target] = setAllSelect.value.split('|');
+        setAllSelect.selectedIndex = -1;
+        if (!target) return;
+        selectedFiles.forEach((file) => {
+            if (kindOf(file) === kind && allowedTargets(file).some(option => option.value === target)) file.target = target;
+        });
+        selectedFiles.forEach((file) => {
+            if (!file.rowSelect) return;
+            file.rowSelect.value = file.target;
+            file.rowSelect.__dropdownSync?.();
+        });
+        refreshOptions();
+    });
+
+    batchClearButton.addEventListener('click', () => clearFile());
+
+    function pickFiles(append) {
+        window.__TAURI__.dialog.open({
+            multiple: true,
+            directory: false,
+            title: append ? 'Add files to convert' : 'Select files to convert'
+        }).then((paths) => {
+            if (!paths) return;
+            const list = Array.isArray(paths) ? paths : [paths];
+            handleFiles(list.map(path => ({ name: basename(path), path })), append);
+        }).catch((err) => {
+            console.error('File dialog failed:', err);
+        });
+    }
+
+    batchAddButton.addEventListener('click', () => {
+        if (isTauri) pickFiles(true);
+    });
+
     if (isTauri) {
-        const { open } = window.__TAURI__.dialog;
         const { getCurrentWindow } = window.__TAURI__.window;
 
         uploadZone.addEventListener('click', (e) => {
             e.preventDefault();
-            open({
-                multiple: false,
-                directory: false,
-                title: 'Select a file to convert'
-            }).then((path) => {
-                if (!path) return;
-                handleFile(basename(path), path);
-            }).catch((err) => {
-                console.error('File dialog failed:', err);
-            });
+            pickFiles(false);
         });
 
         getCurrentWindow().onDragDropEvent((event) => {
@@ -1236,26 +1689,24 @@ function setupMediaPanel() {
             const scale = window.devicePixelRatio || 1;
             const dropX = x / scale;
             const dropY = y / scale;
-            const rect = uploadZone.getBoundingClientRect();
+            const rect = (panel.hasAttribute('toupload') ? uploadZone : windowEl).getBoundingClientRect();
             const insideZone = dropX >= rect.left && dropX <= rect.right
                 && dropY >= rect.top && dropY <= rect.bottom;
             if (!insideZone) return;
 
-            const path = event.payload.paths?.[0];
-            if (!path) return;
-            handleFile(basename(path), path);
+            const paths = event.payload.paths ?? [];
+            if (!paths.length) return;
+            handleFiles(paths.map(path => ({ name: basename(path), path })), !panel.hasAttribute('toupload'));
         });
     } else {
         fileInput.addEventListener('change', () => {
-            const file = fileInput.files[0];
-            if (file) handleFile(file.name, null);
+            handleFiles(Array.from(fileInput.files).map(file => ({ name: file.name, path: null })));
         });
 
         uploadZone.addEventListener('dragover', (e) => e.preventDefault());
         uploadZone.addEventListener('drop', (e) => {
             e.preventDefault();
-            const file = e.dataTransfer.files[0];
-            if (file) handleFile(file.name, null);
+            handleFiles(Array.from(e.dataTransfer.files).map(file => ({ name: file.name, path: null })));
         });
     }
 
@@ -1278,24 +1729,18 @@ function setupMediaPanel() {
         unattachButton.click();
     });
 
-    resetButton.addEventListener('click', () => {
-        fileNameInput.value = originalFileName;
-        [metadataCheckbox, preserveCheckbox, overwriteCheckbox].forEach(cb => {
-            cb.checked = false;
-        });
-        persistCheckboxState();
-    });
-
     proceedButton.addEventListener('click', async () => {
-        if (!originalFilePath) {
+        if (!selectedFiles.length) {
             doFileNotAttached();
             return;
         }
-        if (!fileNameInput.value.trim()) {
+        const batch = selectedFiles.length > 1;
+        if (!batch && !fileNameInput.value.trim()) {
             doFileNameEmpty();
             return;
         }
-        if (dropdown.value.toLowerCase() === originalExtension) {
+        const sources = currentPairs().filter(({ file, target }) => target && target !== file.ext);
+        if (!sources.length) {
             doMediaConvertInvalid();
             return;
         }
@@ -1304,37 +1749,45 @@ function setupMediaPanel() {
             return;
         }
 
-        const mediaKind = typeSvgs.image?.hasAttribute('enabled') ? 'image'
-            : typeSvgs.video?.hasAttribute('enabled') ? 'video'
-            : typeSvgs.audio?.hasAttribute('enabled') ? 'audio'
-            : null;
-
-        const targetGroup = dropdown.selectedOptions[0]?.closest('optgroup')?.id;
-        const effectiveKind = mediaKind === 'video' && targetGroup === 'audio' ? 'audio'
-            : mediaKind === 'image' && targetGroup === 'video' ? 'video'
-            : mediaKind;
-
-        if (effectiveKind !== 'image' && effectiveKind !== 'audio' && effectiveKind !== 'video') {
-            return;
-        }
-
         const { invoke } = window.__TAURI__.core;
         const { listen } = window.__TAURI__.event;
-        const outputName = fileNameInput.value || originalFileName;
-        const targetExt = dropdown.value.toLowerCase();
 
-        const existingFolder = await invoke('existing_output_folder', {
-            sourcePath: originalFilePath,
-            outputName,
-            targetExt
-        }).catch((err) => {
-            console.error('Could not check for an existing output file:', err);
-            return null;
+        const folderOf = (path) => outputDir ?? (path ? path.replace(/[^\\/]*$/, '') : '');
+        const usedNames = new Set();
+        const jobs = sources.map(({ file, target }) => {
+            const baseName = batch ? baseNameOf(file) : (fileNameInput.value || originalFileName);
+            const key = (name) => `${folderOf(file.path)}|${name.toLowerCase()}.${target}`;
+            let outputName = baseName;
+            for (let n = 2; usedNames.has(key(outputName)); n++) {
+                outputName = `${baseName} (${n})`;
+            }
+            usedNames.add(key(outputName));
+            return { file, target, kind: conversionKindOf(file, target), outputName };
         });
-        if (existingFolder !== null) {
+
+        const jobId = await invoke('begin_conversion').catch(() => null);
+
+        const conflicts = [];
+        for (const job of jobs) {
+            const folder = await invoke('existing_output_folder', {
+                sourcePath: job.file.path,
+                outputName: job.outputName,
+                targetExt: job.target,
+                outputDir
+            }).catch((err) => {
+                console.error('Could not check for an existing output file:', err);
+                return null;
+            });
+            if (folder !== null) conflicts.push({ job, folder });
+        }
+        if (conflicts.length) {
+            const [first] = conflicts;
+            const sameFolder = conflicts.every(conflict => conflict.folder === first.folder);
             const choice = await showDialog({
-                title: 'Replace existing file?',
-                message: `“${outputName}.${targetExt}” already exists in “${existingFolder}”. Proceeding will permanently delete the old file.`,
+                title: conflicts.length === 1 ? 'Replace existing file?' : 'Replace existing files?',
+                message: conflicts.length === 1
+                    ? `“${first.job.outputName}.${first.job.target}” already exists in “${first.folder}”. Proceeding will permanently delete the old file.`
+                    : `${conflicts.length} of the converted files already exist${sameFolder ? ` in “${first.folder}”` : ''}. Proceeding will permanently delete the old files.`,
                 buttons: [
                     { label: 'Replace', value: 'replace', featured: true },
                     { label: 'Cancel', value: 'cancel', focus: true }
@@ -1343,49 +1796,77 @@ function setupMediaPanel() {
             if (choice !== 'replace') return;
         }
 
+        function convert(job) {
+            const args = {
+                sourcePath: job.file.path,
+                outputName: job.outputName,
+                targetExt: job.target,
+                preserveDate: preserveCheckbox.checked,
+                overwrite: overwriteCheckbox.checked,
+                outputDir,
+                job: jobId,
+                quality: qualitySelect.value
+            };
+            if (job.kind === 'image') return invoke('convert_image', { ...args, keepMetadata: metadataCheckbox.checked });
+            if (job.kind === 'video') return invoke('convert_video', args);
+            return invoke('convert_audio', args);
+        }
+
+        let cancelled = false;
+        cancelConversion = () => {
+            if (cancelled) return;
+            cancelled = true;
+            loadingCancel.disabled = true;
+            loadingCancelLabel.textContent = 'Cancelling';
+            invoke('cancel_conversion').catch((err) => console.error('Could not cancel the conversion:', err));
+        };
+        loadingCancel.disabled = false;
+        loadingCancelLabel.textContent = 'Cancel';
+
         showLoading();
+        loadingCancel.focus();
+        let current = 0;
         const unlisten = await listen('conversion-progress', (event) => {
-            setProgress(event.payload);
+            conversionTitleSubject = batch ? `${Math.min(current + 1, jobs.length)} of ${jobs.length}` : 'a file';
+            setProgress((current * 100 + event.payload) / jobs.length);
         });
 
+        const failures = [];
+        let saved = 0;
         try {
-            const outputPath = effectiveKind === 'image'
-                ? await invoke('convert_image', {
-                    sourcePath: originalFilePath,
-                    outputName,
-                    targetExt,
-                    keepMetadata: metadataCheckbox.checked,
-                    preserveDate: preserveCheckbox.checked,
-                    overwrite: overwriteCheckbox.checked
-                })
-                : effectiveKind === 'video'
-                ? await invoke('convert_video', {
-                    sourcePath: originalFilePath,
-                    outputName,
-                    targetExt,
-                    preserveDate: preserveCheckbox.checked,
-                    overwrite: overwriteCheckbox.checked
-                })
-                : await invoke('convert_audio', {
-                    sourcePath: originalFilePath,
-                    outputName,
-                    targetExt,
-                    preserveDate: preserveCheckbox.checked,
-                    overwrite: overwriteCheckbox.checked
-                });
-            console.log('Converted:', outputPath);
-            setProgress(100);
-            await new Promise((resolve) => setTimeout(resolve, 300));
-            doFileSaved();
-            clearFile();
-        } catch (err) {
-            console.error('Conversion failed:', err);
-            doFileCorrupted(err);
-            clearFile();
+            for (current = 0; current < jobs.length && !cancelled; current++) {
+                try {
+                    console.log('Converted:', await convert(jobs[current]));
+                    saved++;
+                } catch (err) {
+                    if (cancelled || err === 'Conversion cancelled.') {
+                        cancelled = true;
+                        break;
+                    }
+                    console.error('Conversion failed:', err);
+                    failures.push({ job: jobs[current], err });
+                }
+            }
+            if (!cancelled) {
+                setProgress(100);
+                await new Promise((resolve) => setTimeout(resolve, 300));
+            }
         } finally {
+            cancelConversion = null;
             unlisten();
             hideLoading();
         }
+
+        if (cancelled) {
+            triggerWarn('conversion-cancelled', batch && saved ? `Conversion cancelled! ${saved} of ${jobs.length} files were saved.` : undefined);
+        } else if (!failures.length) {
+            doFileSaved(batch ? `${jobs.length} files saved!` : undefined);
+        } else if (!batch) {
+            doFileCorrupted(failures[0].err);
+        } else {
+            doFileCorrupted(`${jobs.length - failures.length} of ${jobs.length} files converted. “${failures[0].job.file.name}” failed: ${failures[0].err}`);
+        }
+        clearFile();
     });
 }
 
@@ -2274,7 +2755,7 @@ const appDialog = document.getElementById('app-dialog');
 const appDialogTitle = document.getElementById('app-dialog-title');
 const appDialogMessage = document.getElementById('app-dialog-message');
 const appDialogFooter = document.getElementById('app-dialog-footer');
-const appDialogBlocked = [document.querySelector('.window'), document.querySelector('.sidebar')];
+const appDialogBlocked = [document.querySelector('.titlebar'), document.querySelector('.window'), document.querySelector('.sidebar')];
 let appDialogButtons = [];
 let appDialogCancelValue = null;
 let appDialogResolve = null;
@@ -2535,6 +3016,7 @@ function initCustomDropdown(select, trigger) {
     popup.className = 'dropdown-popup';
     popup.setAttribute('popover', 'manual');
     document.body.appendChild(popup);
+    select.__dropdownPopup = popup;
 
     const scrollWrap = document.createElement('div');
     scrollWrap.className = 'dropdown-popup-scroll';
@@ -2566,7 +3048,10 @@ function initCustomDropdown(select, trigger) {
         item.textContent = optionEl.textContent;
         item.dataset.value = optionEl.value;
 
-        if (optionEl.disabled) {
+        if ('header' in optionEl.dataset) {
+            item.classList.add('dropdown-header');
+            item.setAttribute('aria-disabled', 'true');
+        } else if (optionEl.disabled) {
             item.classList.add('disabled');
             item.setAttribute('aria-disabled', 'true');
         } else {
@@ -2611,11 +3096,16 @@ function initCustomDropdown(select, trigger) {
         popup.style.left = 'auto';
         popup.style.right = `${window.innerWidth - rect.right}px`;
         popup.style.minWidth = `${rect.width}px`;
-        scrollWrap.style.maxHeight = isSettingsScoped ? '115px' : '174px';
+        scrollWrap.style.maxHeight = select.dataset.popupMaxHeight || (isSettingsScoped ? '115px' : '174px');
     }
 
     function clampPopupToWindowTop() {
-        const popupRect = popup.getBoundingClientRect();
+        let popupRect = popup.getBoundingClientRect();
+        const bottomLimit = window.innerHeight - 6;
+        if (popupRect.bottom > bottomLimit) {
+            popup.style.top = `${(parseFloat(popup.style.top) || 0) - (popupRect.bottom - bottomLimit)}px`;
+            popupRect = popup.getBoundingClientRect();
+        }
         if (popupRect.top < 35) {
             const currentTop = parseFloat(popup.style.top) || 0;
             popup.style.top = `${currentTop + (35 - popupRect.top)}px`;
@@ -2762,6 +3252,7 @@ const AC_SETTINGS_KEY = 'ftools:autoclicker-settings';
 const acClickTypeSelect = document.getElementById('ac-button');
 const acCpsInput = document.getElementById('ac-cps');
 const acHoldTimeInput = document.getElementById('ac-hold-time');
+const acRandomIntervalInput = document.getElementById('ac-random-interval');
 
 let acRestoringSettings = true;
 
@@ -2786,6 +3277,7 @@ function saveAcSettings() {
             actionListFolded: acRowFolded,
             cps: acCpsInput ? acCpsInput.value : undefined,
             holdTime: acHoldTimeInput ? acHoldTimeInput.value : undefined,
+            randomInterval: acRandomIntervalInput ? acRandomIntervalInput.value : undefined,
             toggleKey: acToggleKeyValue
         }));
     } catch (err) {
@@ -3611,6 +4103,7 @@ function autosizeAcInput(input) {
 
 if (acCpsInput) autosizeAcInput(acCpsInput);
 if (acHoldTimeInput) autosizeAcInput(acHoldTimeInput);
+if (acRandomIntervalInput) autosizeAcInput(acRandomIntervalInput);
 
 
 
@@ -3689,6 +4182,32 @@ if (acHoldTimeInput) {
     acHoldTimeInput.addEventListener('change', handleAcHoldTimeChange);
 }
 
+const AC_MAX_RANDOM_INTERVAL = 90;
+
+function clampAcRandomInterval(value) {
+    return Math.min(AC_MAX_RANDOM_INTERVAL, Math.max(0, value));
+}
+
+function handleAcRandomIntervalInput() {
+    if (acRandomIntervalInput.value === '') return;
+    const value = parseInt(acRandomIntervalInput.value, 10);
+    if (isNaN(value)) return;
+    acRandomIntervalInput.value = clampAcRandomInterval(value);
+    autosizeAcInput(acRandomIntervalInput);
+}
+
+function handleAcRandomIntervalChange() {
+    const value = parseInt(acRandomIntervalInput.value, 10);
+    acRandomIntervalInput.value = isNaN(value) ? 0 : clampAcRandomInterval(value);
+    autosizeAcInput(acRandomIntervalInput);
+    saveAcSettings();
+}
+
+if (acRandomIntervalInput) {
+    acRandomIntervalInput.addEventListener('input', handleAcRandomIntervalInput);
+    acRandomIntervalInput.addEventListener('change', handleAcRandomIntervalChange);
+}
+
 document.querySelectorAll('.autoclicker-input-wrap').forEach((wrap) => {
     const input = wrap.querySelector('.autoclicker-input');
     if (!input) return;
@@ -3729,6 +4248,10 @@ updateAcMaxHoldTime();
     if (acHoldTimeInput && saved.holdTime !== undefined) {
         acHoldTimeInput.value = saved.holdTime;
         handleAcHoldTimeChange();
+    }
+    if (acRandomIntervalInput && saved.randomInterval !== undefined) {
+        acRandomIntervalInput.value = saved.randomInterval;
+        handleAcRandomIntervalChange();
     }
     if (saved.toggleKey) {
         setAcToggleKey(saved.toggleKey);
@@ -3820,6 +4343,7 @@ async function startAcClicking() {
         const holdMs = acHoldTimeInput ? (parseInt(acHoldTimeInput.value, 10) || 1) : 1;
         const cps = acCpsInput ? (parseInt(acCpsInput.value, 10) || 1) : 1;
         const intervalMs = Math.max(1, Math.round(1000 / cps));
+        const randomPercent = acRandomIntervalInput ? clampAcRandomInterval(parseInt(acRandomIntervalInput.value, 10) || 0) : 0;
 
         // Fire-and-forget: the whole click loop (schedule tick, press, hold,
         // release, repeat) now runs entirely on the Rust side, driven by a
@@ -3833,6 +4357,7 @@ async function startAcClicking() {
             actions,
             holdMs,
             intervalMs,
+            randomPercent,
             generation: acCurrentGeneration,
         }).catch((err) => {
             console.error('Autoclicker loop ended unexpectedly:', err);
@@ -4087,9 +4612,11 @@ function updateWindowTitle(panelId) {
     if (panelChanged) syncAcGlobalHotkey();
 }
 
+let conversionTitleSubject = 'a file';
+
 function setConversionProgressTitle(percent) {
     const label = percent >= 100 ? '100%' : `${percent.toFixed(1)}%`;
-    applyTitlebarTitle(appSettings.hideToolInTitlebar ? 'fTools' : `fTools | Converting a file ${label}`);
+    applyTitlebarTitle(appSettings.hideToolInTitlebar ? 'fTools' : `fTools | Converting ${conversionTitleSubject} ${label}`);
 }
 
 function suspendQrSliderAnim() {
@@ -4370,6 +4897,46 @@ sidebarEditorBackButton?.addEventListener('click', () => {
     activatePanel('settings');
     sidebarEditorOpenButton?.focus({ focusVisible: true });
 });
+
+const updateRow = document.getElementById('s-update-row');
+const updateVersion = document.getElementById('s-update-version');
+const updateButton = document.getElementById('s-update-install');
+const updateButtonLabel = updateButton?.querySelector('span');
+
+async function checkForUpdate() {
+    if (!('__TAURI_INTERNALS__' in window) || !updateRow) return;
+    try {
+        const info = await window.__TAURI__.core.invoke('check_for_update');
+        if (!info) return;
+        updateVersion.textContent = `fTools ${info.version} (you have ${info.currentVersion})`;
+        updateRow.classList.add('show');
+        document.getElementById('t-settings')?.classList.add('has-update');
+    } catch {}
+}
+
+updateButton?.addEventListener('click', async () => {
+    if (updateButton.disabled) return;
+    const { invoke } = window.__TAURI__.core;
+    const { listen } = window.__TAURI__.event;
+
+    updateButton.disabled = true;
+    updateButtonLabel.textContent = '0%';
+    const unlisten = await listen('update-progress', (event) => {
+        updateButtonLabel.textContent = event.payload >= 100 ? 'Installing' : `${event.payload}%`;
+    });
+
+    try {
+        await invoke('install_update');
+    } catch (error) {
+        updateButton.disabled = false;
+        updateButtonLabel.textContent = 'Retry';
+        triggerWarn('update-failed', String(error));
+    } finally {
+        unlisten();
+    }
+});
+
+checkForUpdate();
 
 document.getElementById('editor-reset')?.addEventListener('click', () => {
     sidebarConfig = { order: [...EDITABLE_SIDEBAR_IDS], hidden: [...DEFAULT_HIDDEN_SIDEBAR_IDS] };

@@ -13,6 +13,10 @@ pub enum Codec {
     Mp3,
     Opus { head: Vec<u8> },
     Vorbis { headers: Vec<u8> },
+    Mpeg4 { config: Vec<u8> },
+    Mjpeg,
+    Mp2,
+    Pcm { bits: u16, float: bool },
     Unsupported(String),
 }
 
@@ -28,6 +32,10 @@ impl Codec {
             Codec::Mp3 => "MP3".to_string(),
             Codec::Opus { .. } => "Opus".to_string(),
             Codec::Vorbis { .. } => "Vorbis".to_string(),
+            Codec::Mpeg4 { .. } => "MPEG-4 Part 2 (Xvid/DivX)".to_string(),
+            Codec::Mjpeg => "Motion JPEG".to_string(),
+            Codec::Mp2 => "MP2".to_string(),
+            Codec::Pcm { .. } => "PCM".to_string(),
             Codec::Unsupported(name) => name.clone(),
         }
     }
@@ -271,6 +279,11 @@ pub fn read_matroska(raw: &[u8]) -> Result<Vec<Track<'_>>, String> {
             "A_MPEG/L3" => Codec::Mp3,
             "A_OPUS" => Codec::Opus { head: cp },
             "A_VORBIS" => Codec::Vorbis { headers: cp },
+            "V_MPEG4/ISO/ASP" | "V_MPEG4/ISO/SP" | "V_MPEG4/ISO/AP" => Codec::Mpeg4 { config: cp },
+            "V_MJPEG" => Codec::Mjpeg,
+            "A_MPEG/L2" => Codec::Mp2,
+            "A_PCM/INT/LIT" => Codec::Pcm { bits: t.bit_depth.unwrap_or(16) as u16, float: false },
+            "A_PCM/FLOAT/IEEE" => Codec::Pcm { bits: t.bit_depth.unwrap_or(32) as u16, float: true },
             other => Codec::Unsupported(other.to_string()),
         };
         let samples: Vec<Sample> = frames
@@ -450,6 +463,11 @@ fn parse_sample_entry(kind: [u8; 4], body: &[u8], video: bool) -> Mp4Entry {
             b"vp08" => Codec::Vp8,
             b"vp09" => Codec::Vp9,
             b"av01" => Codec::Av1 { config: child(children, b"av1C").unwrap_or(&[]).to_vec() },
+            b"mp4v" => match find_nested(children, b"esds", 2).and_then(parse_esds) {
+                Some((0x20, config)) => Codec::Mpeg4 { config },
+                _ => entry.codec,
+            },
+            b"jpeg" | b"mjpa" => Codec::Mjpeg,
             _ => entry.codec,
         };
         return entry;
@@ -484,23 +502,27 @@ fn parse_sample_entry(kind: [u8; 4], body: &[u8], video: bool) -> Mp4Entry {
     entry
 }
 
-fn read_mp4_track<'a>(raw: &'a [u8], trak: &[u8], movie_timescale: u32) -> Option<Track<'a>> {
-    let mdia = child(trak, b"mdia")?;
-    let hdlr = child(mdia, b"hdlr")?;
-    let handler = hdlr.get(8..12)?;
-    let video = match handler {
-        b"vide" => true,
-        b"soun" => false,
-        _ => return None,
-    };
-    let mdhd = child(mdia, b"mdhd")?;
-    let timescale = if mdhd[0] == 1 { be32(mdhd, 20)? } else { be32(mdhd, 12)? }.max(1);
-    let stbl = child(child(mdia, b"minf")?, b"stbl")?;
+struct Mp4Sample {
+    offset: u64,
+    size: u32,
+    dts: i64,
+    composition: i64,
+    keyframe: bool,
+}
 
-    let stsd = child(stbl, b"stsd")?;
-    let (kind, entry_body) = *boxes(stsd.get(8..)?).first()?;
-    let entry = parse_sample_entry(kind, entry_body, video);
+#[derive(Clone, Copy, Default)]
+struct TrackDefaults {
+    duration: u32,
+    size: u32,
+    flags: u32,
+}
 
+struct Fragment<'a> {
+    start: u64,
+    body: &'a [u8],
+}
+
+fn table_samples(stbl: &[u8]) -> Option<(Vec<Mp4Sample>, i64)> {
     let mut sizes: Vec<u32> = Vec::new();
     if let Some(stsz) = child(stbl, b"stsz") {
         let uniform = be32(stsz, 4)?;
@@ -521,7 +543,7 @@ fn read_mp4_track<'a>(raw: &'a [u8], trak: &[u8], movie_timescale: u32) -> Optio
     }
     let n = sizes.len();
     if n == 0 {
-        return None;
+        return Some((Vec::new(), 0));
     }
 
     let mut chunk_offsets: Vec<u64> = Vec::new();
@@ -591,6 +613,163 @@ fn read_mp4_track<'a>(raw: &'a [u8], trak: &[u8], movie_timescale: u32) -> Optio
     let sync: Option<Vec<u32>> = child(stbl, b"stss")
         .map(|stss| (0..be32(stss, 4).unwrap_or(0) as usize).filter_map(|i| be32(stss, 8 + 4 * i)).collect());
 
+    let samples = (0..n)
+        .map(|i| Mp4Sample {
+            offset: offsets[i],
+            size: sizes[i],
+            dts: dts[i],
+            composition: composition[i],
+            keyframe: sync.as_ref().map(|s| s.binary_search(&(i as u32 + 1)).is_ok()).unwrap_or(true),
+        })
+        .collect();
+    Some((samples, t))
+}
+
+fn is_sync_flags(flags: u32) -> bool {
+    flags & 0x0001_0000 == 0
+}
+
+fn fragment_samples(fragments: &[Fragment], track_id: u32, trex: TrackDefaults, mut next_dts: i64, out: &mut Vec<Mp4Sample>) {
+    for fragment in fragments {
+        let mut next_data_offset: Option<u64> = None;
+        for (kind, traf) in boxes(fragment.body) {
+            if &kind != b"traf" {
+                continue;
+            }
+            let Some(tfhd) = child(traf, b"tfhd") else { continue };
+            let tfhd_flags = be32(tfhd, 0).unwrap_or(0) & 0x00FF_FFFF;
+            if be32(tfhd, 4) != Some(track_id) {
+                continue;
+            }
+
+            let mut defaults = trex;
+            let mut at = 8usize;
+            let mut base = fragment.start;
+            if tfhd_flags & 0x01 != 0 {
+                base = be64(tfhd, at).unwrap_or(base);
+                at += 8;
+            } else if tfhd_flags & 0x02_0000 == 0 {
+                base = next_data_offset.unwrap_or(fragment.start);
+            }
+            if tfhd_flags & 0x02 != 0 {
+                at += 4;
+            }
+            if tfhd_flags & 0x08 != 0 {
+                defaults.duration = be32(tfhd, at).unwrap_or(defaults.duration);
+                at += 4;
+            }
+            if tfhd_flags & 0x10 != 0 {
+                defaults.size = be32(tfhd, at).unwrap_or(defaults.size);
+                at += 4;
+            }
+            if tfhd_flags & 0x20 != 0 {
+                defaults.flags = be32(tfhd, at).unwrap_or(defaults.flags);
+            }
+
+            if let Some(tfdt) = child(traf, b"tfdt") {
+                let decode_time = if tfdt.first() == Some(&1) { be64(tfdt, 4).map(|t| t as i64) } else { be32(tfdt, 4).map(|t| t as i64) };
+                if let Some(t) = decode_time {
+                    next_dts = t;
+                }
+            }
+
+            let mut data_pos = base;
+            for (kind, trun) in boxes(traf) {
+                if &kind != b"trun" {
+                    continue;
+                }
+                let trun_flags = be32(trun, 0).unwrap_or(0) & 0x00FF_FFFF;
+                let Some(count) = be32(trun, 4) else { break };
+                let mut at = 8usize;
+                if trun_flags & 0x01 != 0 {
+                    let Some(offset) = be32(trun, at) else { break };
+                    data_pos = (base as i64 + offset as i32 as i64).max(0) as u64;
+                    at += 4;
+                }
+                let mut first_flags = None;
+                if trun_flags & 0x04 != 0 {
+                    first_flags = be32(trun, at);
+                    at += 4;
+                }
+                for i in 0..count as usize {
+                    let mut duration = defaults.duration;
+                    let mut size = defaults.size;
+                    let mut flags = if i == 0 { first_flags.unwrap_or(defaults.flags) } else { defaults.flags };
+                    let mut composition = 0i64;
+                    if trun_flags & 0x100 != 0 {
+                        let Some(v) = be32(trun, at) else { return };
+                        duration = v;
+                        at += 4;
+                    }
+                    if trun_flags & 0x200 != 0 {
+                        let Some(v) = be32(trun, at) else { return };
+                        size = v;
+                        at += 4;
+                    }
+                    if trun_flags & 0x400 != 0 {
+                        let Some(v) = be32(trun, at) else { return };
+                        if !(i == 0 && first_flags.is_some()) {
+                            flags = v;
+                        }
+                        at += 4;
+                    }
+                    if trun_flags & 0x800 != 0 {
+                        let Some(v) = be32(trun, at) else { return };
+                        composition = v as i32 as i64;
+                        at += 4;
+                    }
+                    out.push(Mp4Sample { offset: data_pos, size, dts: next_dts, composition, keyframe: is_sync_flags(flags) });
+                    data_pos += size as u64;
+                    next_dts += duration as i64;
+                }
+            }
+            next_data_offset = Some(data_pos);
+        }
+    }
+}
+
+fn track_defaults(moov: &[u8], track_id: u32) -> TrackDefaults {
+    child(moov, b"mvex")
+        .map(boxes)
+        .unwrap_or_default()
+        .into_iter()
+        .filter(|(kind, _)| kind == b"trex")
+        .find(|(_, trex)| be32(trex, 4) == Some(track_id))
+        .map(|(_, trex)| TrackDefaults {
+            duration: be32(trex, 12).unwrap_or(0),
+            size: be32(trex, 16).unwrap_or(0),
+            flags: be32(trex, 20).unwrap_or(0),
+        })
+        .unwrap_or_default()
+}
+
+fn read_mp4_track<'a>(raw: &'a [u8], moov: &[u8], trak: &[u8], movie_timescale: u32, fragments: &[Fragment]) -> Option<Track<'a>> {
+    let mdia = child(trak, b"mdia")?;
+    let hdlr = child(mdia, b"hdlr")?;
+    let handler = hdlr.get(8..12)?;
+    let video = match handler {
+        b"vide" => true,
+        b"soun" => false,
+        _ => return None,
+    };
+    let mdhd = child(mdia, b"mdhd")?;
+    let timescale = if mdhd[0] == 1 { be32(mdhd, 20)? } else { be32(mdhd, 12)? }.max(1);
+    let stbl = child(child(mdia, b"minf")?, b"stbl")?;
+
+    let stsd = child(stbl, b"stsd")?;
+    let (kind, entry_body) = *boxes(stsd.get(8..)?).first()?;
+    let entry = parse_sample_entry(kind, entry_body, video);
+
+    let (mut mp4_samples, next_dts) = table_samples(stbl)?;
+    if !fragments.is_empty() {
+        let tkhd = child(trak, b"tkhd")?;
+        let track_id = if tkhd.first() == Some(&1) { be32(tkhd, 20)? } else { be32(tkhd, 12)? };
+        fragment_samples(fragments, track_id, track_defaults(moov, track_id), next_dts, &mut mp4_samples);
+    }
+    if mp4_samples.is_empty() {
+        return None;
+    }
+
     let mut empty_ns: i64 = 0;
     let mut media_time: i64 = 0;
     if let Some(elst) = child(trak, b"edts").and_then(|e| child(e, b"elst")) {
@@ -613,15 +792,14 @@ fn read_mp4_track<'a>(raw: &'a [u8], trak: &[u8], movie_timescale: u32) -> Optio
     }
 
     let to_ns = |units: i64| (units as i128 * 1_000_000_000 / timescale as i128) as i64;
-    let mut samples = Vec::with_capacity(n);
-    for i in 0..n {
-        let start = offsets[i] as usize;
-        let end = start.checked_add(sizes[i] as usize)?;
+    let mut samples = Vec::with_capacity(mp4_samples.len());
+    for s in &mp4_samples {
+        let start = usize::try_from(s.offset).ok()?;
+        let end = start.checked_add(s.size as usize)?;
         let data = raw.get(start..end)?;
-        let pts = dts[i] + composition[i];
+        let pts = s.dts + s.composition;
         let pts_ns = if video { to_ns(pts - media_time) + empty_ns } else { to_ns(pts) + empty_ns };
-        let keyframe = sync.as_ref().map(|s| s.binary_search(&(i as u32 + 1)).is_ok()).unwrap_or(true);
-        samples.push(Sample { pts_ns, keyframe, data: Cow::Borrowed(data) });
+        samples.push(Sample { pts_ns, keyframe: s.keyframe, data: Cow::Borrowed(data) });
     }
 
     Some(Track {
@@ -643,15 +821,21 @@ pub fn read_mp4(raw: &[u8]) -> Result<Vec<Track<'_>>, String> {
         .find(|(k, _)| k == b"moov")
         .map(|(_, b)| *b)
         .ok_or_else(|| "This doesn't look like a valid MP4/MOV file (no moov box).".to_string())?;
-    if top.iter().any(|(k, _)| k == b"moof") {
-        return Err("This is a fragmented MP4/MOV file, which isn't supported yet.".to_string());
-    }
+    let fragments: Vec<Fragment> = top
+        .iter()
+        .filter(|(k, _)| k == b"moof")
+        .filter_map(|(_, body)| {
+            let body_start = body.as_ptr() as usize - raw.as_ptr() as usize;
+            let header = if raw.get(body_start.checked_sub(4)?..body_start) == Some(b"moof".as_slice()) { 8 } else { 16 };
+            Some(Fragment { start: body_start.checked_sub(header)? as u64, body })
+        })
+        .collect();
     let mvhd = child(moov, b"mvhd").unwrap_or(&[]);
     let movie_timescale = if mvhd.first() == Some(&1) { be32(mvhd, 20) } else { be32(mvhd, 12) }.unwrap_or(1000);
     let tracks: Vec<Track> = boxes(moov)
         .into_iter()
         .filter(|(k, _)| k == b"trak")
-        .filter_map(|(_, trak)| read_mp4_track(raw, trak, movie_timescale))
+        .filter_map(|(_, trak)| read_mp4_track(raw, moov, trak, movie_timescale, &fragments))
         .collect();
     if tracks.is_empty() {
         return Err("No readable audio or video tracks were found in this file.".to_string());
@@ -659,7 +843,7 @@ pub fn read_mp4(raw: &[u8]) -> Result<Vec<Track<'_>>, String> {
     Ok(tracks)
 }
 
-const AAC_SAMPLE_RATES: [u32; 13] = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
+pub(crate) const AAC_SAMPLE_RATES: [u32; 13] = [96000, 88200, 64000, 48000, 44100, 32000, 24000, 22050, 16000, 12000, 11025, 8000, 7350];
 
 struct BitReader<'a> {
     data: &'a [u8],
@@ -678,7 +862,7 @@ impl BitReader<'_> {
     }
 }
 
-fn adts_params(asc: &[u8]) -> Option<(u8, u8, u8)> {
+pub(crate) fn adts_params(asc: &[u8]) -> Option<(u8, u8, u8)> {
     let mut r = BitReader { data: asc, pos: 0 };
     let read_aot = |r: &mut BitReader| -> Option<u32> {
         let aot = r.read(5)?;

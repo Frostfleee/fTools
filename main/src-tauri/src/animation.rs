@@ -40,7 +40,7 @@ fn picture_to_rgba(p: &Picture) -> RgbaImage {
     RgbaImage::from_raw(w as u32, h as u32, rgba).expect("buffer matches dimensions")
 }
 
-fn rgba_to_picture(img: &RgbaImage) -> Picture {
+pub(crate) fn rgba_to_picture(img: &RgbaImage) -> Picture {
     let src_w = img.width() as usize;
     let (w, h) = (src_w & !1, img.height() as usize & !1);
     let raw = img.as_raw();
@@ -132,7 +132,7 @@ pub fn video_to_gif<W: Write>(tracks: &[Track], out: W, progress: &dyn Fn(usize)
     Ok(())
 }
 
-pub fn gif_to_video(raw: &[u8], target: Target) -> Result<Track<'static>, String> {
+pub fn gif_to_video(raw: &[u8], target: Target, quality: transcode::Quality) -> Result<Track<'static>, String> {
     let read_err = |e: image::ImageError| format!("Couldn't read this GIF: {e}");
     let decoder = GifDecoder::new(Cursor::new(raw)).map_err(read_err)?;
     let (w, h) = decoder.dimensions();
@@ -147,6 +147,7 @@ pub fn gif_to_video(raw: &[u8], target: Target) -> Result<Track<'static>, String
     let mut last: Option<(Picture, i64, u64)> = None;
     let mut count = 0usize;
     for frame in decoder.into_frames() {
+        crate::check_cancelled()?;
         let frame = frame.map_err(read_err)?;
         let (numer, denom) = frame.delay().numer_denom_ms();
         let mut delay = (numer / denom.max(1)) as u64;
@@ -155,7 +156,7 @@ pub fn gif_to_video(raw: &[u8], target: Target) -> Result<Track<'static>, String
         }
         if encoder.is_none() {
             let fps = 1000.0 / delay as f32;
-            let bitrate = (w * h) as f64 * fps as f64 * if target == Target::WebM { 0.08 } else { 0.12 };
+            let bitrate = (w * h) as f64 * fps as f64 * if target == Target::WebM { 0.08 } else { 0.12 } * quality.pick(0.5, 0.75, 1.0, 1.6);
             encoder = Some(VideoEncoder::new(target, w, h, bitrate as u64, fps)?);
         }
         let picture = rgba_to_picture(frame.buffer());

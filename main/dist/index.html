@@ -142,7 +142,7 @@
             </div>
         </div>
         <div class="tab" id="mediafileconverter" toupload>
-            <input class="file-upload" type="file" id="files" accept="*" tabindex="-1"/>
+            <input class="file-upload" type="file" id="files" accept="*" tabindex="-1" multiple/>
             <div class="input-fix"></div>
             <input class="input-box" placeholder="File name"/>
             <button class="input-clear" type="button" tooltip="Clear">
@@ -150,22 +150,14 @@
                     <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
                 </svg>
             </button>
-            <label class="file-upload-zone" for="files" tabindex="0" role="button" aria-label="Upload file" tooltip="Upload file">
+            <label class="file-upload-zone" for="files" tabindex="0" role="button" aria-label="Upload files">
                 <div class="file-upload-border"></div>
-                <svg class="upload-svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-mainColor)" class="size-6">
+                <svg class="upload-svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-mainColor)">
                     <path stroke-linecap="round" stroke-linejoin="round" d="M3 16.5v2.25A2.25 2.25 0 0 0 5.25 21h13.5A2.25 2.25 0 0 0 21 18.75V16.5m-13.5-9L12 3m0 0 4.5 4.5M12 3v13.5" />
                 </svg>
-                <svg class="image-svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-mainColor)" class="size-6">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" />
-                </svg>
-                <svg class="video-svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-mainColor)" class="size-6">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z" />
-                </svg>
-                <svg class="audio-svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-mainColor)" class="size-6">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="M19.114 5.636a9 9 0 0 1 0 12.728M16.463 8.288a5.25 5.25 0 0 1 0 7.424M6.75 8.25l4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z" />
-                </svg>
+                <span class="file-upload-hint">Drop files here or click to browse</span>
             </label>
-            <select class="dropdown">
+            <select class="dropdown" id="o-format">
                 <optgroup id="image">
                     <option value="jpg">JPG</option>
                     <option value="jpeg">JPEG</option>
@@ -183,9 +175,9 @@
                     <option value="mov">MOV</option>
                     <option value="mkv">MKV</option>
                     <option value="webm">WEBM</option>
-                    <option value="avi" disabled>AVI (soon)</option>
-                    <option value="wmv" disabled>WMV (soon)</option>
-                    <option value="flv" disabled>FLV (soon)</option>
+                    <option value="avi">AVI</option>
+                    <option value="wmv">WMV</option>
+                    <option value="flv">FLV</option>
                     <option value="gif">GIF</option>
                     <option value="mpeg" disabled>MPEG (soon)</option>
                 </optgroup>
@@ -198,33 +190,82 @@
                     <option value="m4a">M4A</option>
                     <option value="opus">OPUS</option>
                     <option value="aiff">AIFF</option>
+                    <option value="wma">WMA</option>
                 </optgroup>
             </select>
-            <div class="unattach-file" role="button" tabindex="-1" aria-label="Remove file" tooltip="Remove file">
-                <svg fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
-                    <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
-                </svg>
+            <div class="file-strip">
+                <div class="file-strip-icon">
+                    <svg class="image-svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-mainColor)">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="m2.25 15.75 5.159-5.159a2.25 2.25 0 0 1 3.182 0l5.159 5.159m-1.5-1.5 1.409-1.409a2.25 2.25 0 0 1 3.182 0l2.909 2.909m-18 3.75h16.5a1.5 1.5 0 0 0 1.5-1.5V6a1.5 1.5 0 0 0-1.5-1.5H3.75A1.5 1.5 0 0 0 2.25 6v12a1.5 1.5 0 0 0 1.5 1.5Zm10.5-11.25h.008v.008h-.008V8.25Zm.375 0a.375.375 0 1 1-.75 0 .375.375 0 0 1 .75 0Z" />
+                    </svg>
+                    <svg class="video-svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-mainColor)">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="m15.75 10.5 4.72-4.72a.75.75 0 0 1 1.28.53v11.38a.75.75 0 0 1-1.28.53l-4.72-4.72M4.5 18.75h9a2.25 2.25 0 0 0 2.25-2.25v-9a2.25 2.25 0 0 0-2.25-2.25h-9A2.25 2.25 0 0 0 2.25 7.5v9a2.25 2.25 0 0 0 2.25 2.25Z" />
+                    </svg>
+                    <svg class="audio-svg" fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="var(--t-mainColor)">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="M19.114 5.636a9 9 0 0 1 0 12.728M16.463 8.288a5.25 5.25 0 0 1 0 7.424M6.75 8.25l4.72-4.72a.75.75 0 0 1 1.28.53v15.88a.75.75 0 0 1-1.28.53l-4.72-4.72H4.51c-.88 0-1.704-.507-1.938-1.354A9.009 9.009 0 0 1 2.25 12c0-.83.112-1.633.322-2.396C2.806 8.756 3.63 8.25 4.51 8.25H6.75Z" />
+                    </svg>
+                </div>
+                <div class="file-strip-name" id="file-strip-name"></div>
+                <div class="file-strip-meta" id="file-strip-meta"></div>
+                <div class="unattach-file" role="button" tabindex="-1" aria-label="Remove file" tooltip="Remove file">
+                    <svg fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                        <path stroke-linecap="round" stroke-linejoin="round" d="m14.74 9-.346 9m-4.788 0L9.26 9m9.968-3.21c.342.052.682.107 1.022.166m-1.022-.165L18.16 19.673a2.25 2.25 0 0 1-2.244 2.077H8.084a2.25 2.25 0 0 1-2.244-2.077L4.772 5.79m14.456 0a48.108 48.108 0 0 0-3.478-.397m-12 .562c.34-.059.68-.114 1.022-.165m0 0a48.11 48.11 0 0 1 3.478-.397m7.5 0v-.916c0-1.18-.91-2.164-2.09-2.201a51.964 51.964 0 0 0-3.32 0c-1.18.037-2.09 1.022-2.09 2.201v.916m7.5 0a48.667 48.667 0 0 0-7.5 0" />
+                    </svg>
+                </div>
             </div>
-            <div class="file-options">
-                <label class="check-box" id="o-metadata">
-                    <input type="checkbox"/>
-                    <span>Keep metadata</span>
-                </label>
-                <label class="check-box" id="o-preserve">
-                    <input type="checkbox"/>
-                    <span>Preserve original date</span>
-                </label>
-                <label class="check-box" id="o-overwrite">
-                    <input type="checkbox"/>
-                    <span>Overwrite original file</span>
-                </label>
-                <button class="button" id="reset">
-                    <span>Reset</span>
+            <div class="batch-header">
+                <span class="batch-count" id="batch-count"></span>
+                <span class="batch-size" id="batch-size"></span>
+                <select class="batch-set-all-select" id="batch-set-all" aria-label="Set the format of every file of a type"></select>
+                <button class="batch-header-button" id="batch-set-all-button" type="button">
+                    <span>Set all</span>
+                    <i class="codicon codicon-chevron-down"></i>
                 </button>
-                <button class="button featured" id="proceed">
-                    <span>Proceed</span>
+                <button class="batch-header-button" id="batch-add" type="button">
+                    <i class="codicon codicon-add"></i>
+                    <span>Add files</span>
+                </button>
+                <button class="batch-header-button icon-only" id="batch-clear" type="button" aria-label="Remove all files" tooltip="Remove all files">
+                    <i class="codicon codicon-trash"></i>
                 </button>
             </div>
+            <div class="batch-list" id="batch-list"></div>
+            <div class="file-toolbar">
+                <div class="quality-wrap" id="o-quality-wrap">
+                    <select class="dropdown" id="o-quality" data-popup-max-height="98px">
+                        <option value="low">Low quality</option>
+                        <option value="medium">Medium quality</option>
+                        <option value="high" selected>High quality</option>
+                        <option value="best">Best quality</option>
+                    </select>
+                </div>
+                <button class="output-folder" id="output-folder" type="button" tooltip="Save next to the original file">
+                    <i class="codicon codicon-folder"></i>
+                    <span class="output-folder-label" id="output-folder-label">Same folder</span>
+                    <span class="output-folder-clear" id="output-folder-clear" tooltip="Save next to the original file again">
+                        <svg fill="none" viewBox="0 0 24 24" stroke-width="1.5" stroke="currentColor">
+                            <path stroke-linecap="round" stroke-linejoin="round" d="M6 18 18 6M6 6l12 12" />
+                        </svg>
+                    </span>
+                </button>
+                <div class="file-toolbar-separator"></div>
+                <label class="option-toggle" id="o-metadata" tooltip="Keep metadata">
+                    <input type="checkbox" aria-label="Keep metadata"/>
+                    <i class="codicon codicon-tag"></i>
+                </label>
+                <label class="option-toggle" id="o-preserve" tooltip="Keep original date">
+                    <input type="checkbox" aria-label="Keep original date"/>
+                    <i class="codicon codicon-calendar"></i>
+                </label>
+                <label class="option-toggle" id="o-overwrite" tooltip="Replace original file">
+                    <input type="checkbox" aria-label="Replace original file"/>
+                    <i class="codicon codicon-arrow-swap"></i>
+                </label>
+            </div>
+            <div class="file-summary" id="file-summary"></div>
+            <button class="button featured" id="proceed">
+                <span>Convert</span>
+            </button>
         </div>
         <div class="tab" id="autoclicker">
             <div class="autoclicker">
@@ -275,6 +316,13 @@
                     <div class="autoclicker-input-wrap">
                         <input type="number" class="autoclicker-input" id="ac-cps" value="10" min="1" max="1000"/>
                         <span class="autoclicker-input-suffix">CPS</span>
+                    </div>
+                </div>
+                <div class="autoclicker-row" id="ac-random-interval-row">
+                    <div class="autoclicker-name"><i class="autoclicker-icon codicon codicon-pulse"></i><span>Random interval</span></div>
+                    <div class="autoclicker-input-wrap" tooltip="Varies each delay between clicks by up to this much">
+                        <input type="number" class="autoclicker-input" id="ac-random-interval" value="10" min="0" max="90"/>
+                        <span class="autoclicker-input-suffix">%</span>
                     </div>
                 </div>
                 <div class="autoclicker-row" id="ac-hold-time-row">
@@ -333,6 +381,10 @@
         </div>
         <div class="tab" id="settings">
             <div class="settings">
+                <div class="settings-row update-row" id="s-update-row">
+                    <div class="settings-name"><i class="settings-icon codicon codicon-arrow-circle-down"></i><span class="update-title">Update available</span><span class="update-version" id="s-update-version"></span></div>
+                    <button class="button featured" id="s-update-install"><span>Update</span></button>
+                </div>
                 <div class="settings-row">
                     <div class="settings-name"><i class="settings-icon codicon codicon-edit"></i><span>Sidebar editor</span></div>
                     <button class="button" id="s-open-sidebar-editor"><span>Open</span></button>
@@ -408,6 +460,7 @@
                 <a id="file-name-empty" class="warning">File name cannot be empty!</a>
                 <a id="file-not-attached" class="warning">Attach a file before proceeding!</a>
                 <a id="media-convert-invalid" class="danger">Cannot convert to the same file extension!</a>
+                <a id="conversion-cancelled" class="warning">Conversion cancelled!</a>
                 <a id="sidebar-max-tools-active" class="warning">You can only have 4 tools active at once!</a>
                 <a id="sidebar-min-tools-active" class="warning">You need to have at least 1 tool active!</a>
                 <a id="ac-cps-high" class="warning">High click speeds may be unstable or get detected!</a>
@@ -418,6 +471,7 @@
                 <a id="ac-no-key-set" class="warning">Set a key before starting!</a>
                 <a id="ac-no-actions" class="warning">Add at least one action before starting!</a>
                 <a id="ac-close-on-focus-loss" class="warning">Disable "Close on focus loss" setting before starting!</a>
+                <a id="update-failed" class="danger">Couldn't update fTools!</a>
             </div>
         </div>
 
@@ -436,6 +490,9 @@
             <div class="loading-bar">
                 <div class="loading-bar-fill"></div>
             </div>
+            <button class="button" id="loading-cancel" type="button">
+                <span>Cancel</span>
+            </button>
         </div>
 
         <script src="qrcode/generator.js"></script>

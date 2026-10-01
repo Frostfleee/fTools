@@ -23,6 +23,7 @@ pub const ID_PIXEL_HEIGHT: u32 = 0xBA;
 pub const ID_AUDIO: u32 = 0xE1;
 pub const ID_SAMPLING_FREQUENCY: u32 = 0xB5;
 pub const ID_CHANNELS: u32 = 0x9F;
+pub const ID_BIT_DEPTH: u32 = 0x6264;
 pub const ID_CLUSTER: u32 = 0x1F43_B675;
 pub const ID_TIMESTAMP: u32 = 0xE7;
 pub const ID_SIMPLE_BLOCK: u32 = 0xA3;
@@ -145,6 +146,7 @@ pub struct TrackMeta {
     pub sample_rate: Option<f64>,
     pub channels: Option<u64>,
     pub codec_delay_ns: Option<u64>,
+    pub bit_depth: Option<u64>,
 }
 
 pub fn parse_tracks(full_file: &[u8]) -> io::Result<Vec<TrackMeta>> {
@@ -170,7 +172,7 @@ pub fn parse_tracks(full_file: &[u8]) -> io::Result<Vec<TrackMeta>> {
             width = find(&vf, ID_PIXEL_WIDTH).map(as_uint);
             height = find(&vf, ID_PIXEL_HEIGHT).map(as_uint);
         }
-        let (mut sample_rate, mut channels) = (None, None);
+        let (mut sample_rate, mut channels, mut bit_depth) = (None, None, None);
         if let Some(a) = find(&fields, ID_AUDIO) {
             let af = read_elements(&a.data)?;
             sample_rate = find(&af, ID_SAMPLING_FREQUENCY).map(|e| {
@@ -183,12 +185,13 @@ pub fn parse_tracks(full_file: &[u8]) -> io::Result<Vec<TrackMeta>> {
                 }
             });
             channels = find(&af, ID_CHANNELS).map(as_uint);
+            bit_depth = find(&af, ID_BIT_DEPTH).map(as_uint);
         }
 
         out.push(TrackMeta {
             number, track_type, codec_id, codec_private,
             width, height, sample_rate, channels,
-            codec_delay_ns,
+            codec_delay_ns, bit_depth,
         });
     }
     Ok(out)

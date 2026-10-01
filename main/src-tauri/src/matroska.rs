@@ -29,6 +29,11 @@ fn codec_id(codec: &Codec, webm: bool) -> Result<(&'static str, Vec<u8>), String
         Codec::Hevc { hvcc } => ("V_MPEGH/ISO/HEVC", hvcc.clone(), false),
         Codec::Aac { asc } => ("A_AAC", asc.clone(), false),
         Codec::Mp3 => ("A_MPEG/L3", Vec::new(), false),
+        Codec::Mp2 => ("A_MPEG/L2", Vec::new(), false),
+        Codec::Mpeg4 { config } => ("V_MPEG4/ISO/ASP", config.clone(), false),
+        Codec::Mjpeg => ("V_MJPEG", Vec::new(), false),
+        Codec::Pcm { float: true, .. } => ("A_PCM/FLOAT/IEEE", Vec::new(), false),
+        Codec::Pcm { .. } => ("A_PCM/INT/LIT", Vec::new(), false),
         Codec::Unsupported(name) => return Err(format!("{name} can't be written to this container.")),
     };
     if webm && !webm_ok {
@@ -79,6 +84,9 @@ pub fn write<W: Write>(tracks: &[Track], webm: bool, out: &mut W) -> Result<(), 
         } else {
             let mut audio = build_elem(ebml::ID_SAMPLING_FREQUENCY, &ebml::float_body_f64(t.sample_rate as f64));
             audio.extend(build_elem(ebml::ID_CHANNELS, &uint_body(t.channels.max(1) as u64)));
+            if let Codec::Pcm { bits, .. } = t.codec {
+                audio.extend(build_elem(ebml::ID_BIT_DEPTH, &uint_body(bits as u64)));
+            }
             te.extend(build_elem(ebml::ID_AUDIO, &audio));
         }
         tracks_body.extend(build_elem(ebml::ID_TRACK_ENTRY, &te));

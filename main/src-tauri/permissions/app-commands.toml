@@ -3,4 +3,4 @@
 [[permission]]
 identifier = "allow-app-commands"
 description = "Allows this app's own file-conversion, blur-patch, and autoclicker commands"
-commands.allow = ["existing_output_folder", "convert_image", "convert_audio", "convert_video", "start_autoclicker_loop", "bump_autoclicker_generation"]
+commands.allow = ["check_for_update", "install_update", "begin_conversion", "cancel_conversion", "media_info", "existing_output_folder", "convert_image", "convert_audio", "convert_video", "start_autoclicker_loop", "bump_autoclicker_generation"]

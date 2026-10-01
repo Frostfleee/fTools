@@ -1,12 +1,19 @@
 #![cfg_attr(not(debug_assertions), windows_subsystem = "windows")]
 
 mod animation;
+mod avi;
 mod demux;
 mod ebml;
+mod flv;
+mod h264;
 mod matroska;
+mod opus_decode;
 mod mp4;
+mod mpeg4;
 mod transcode;
+mod update;
 mod vpx;
+mod wmv;
 
 use std::fs;
 use std::io::Cursor;
@@ -104,7 +111,7 @@ fn decode_heif(path: &Path) -> Result<image::DynamicImage, String> {
         .ok_or_else(|| "Couldn't reassemble the decoded HEIF pixel data.".to_string())
 }
 
-fn encode_heif(img: &image::DynamicImage, output_path: &Path) -> Result<(), String> {
+fn encode_heif(img: &image::DynamicImage, output_path: &Path, quality: transcode::Quality) -> Result<(), String> {
     let output_str = output_path
         .to_str()
         .ok_or_else(|| "The output path contains characters libheif can't handle.".to_string())?;
@@ -141,7 +148,7 @@ fn encode_heif(img: &image::DynamicImage, output_path: &Path) -> Result<(), Stri
         .encoder_for_format(CompressionFormat::Hevc)
         .map_err(|e| e.to_string())?;
     encoder
-        .set_quality(EncoderQuality::Lossy(90))
+        .set_quality(EncoderQuality::Lossy(quality.pick(50, 70, 90, 97)))
         .map_err(|e| e.to_string())?;
     context
         .encode_image(&heif_image, &mut encoder, None)
@@ -198,10 +205,132 @@ fn inject_exif(bytes: Vec<u8>, ext: &str, exif: img_parts::Bytes) -> Vec<u8> {
     rewritten.unwrap_or(bytes)
 }
 
+const CANCELLED: &str = "Conversion cancelled.";
+static CONVERSION_GENERATION: std::sync::atomic::AtomicU64 = std::sync::atomic::AtomicU64::new(0);
+
+thread_local! {
+    static CONVERSION_JOB: std::cell::Cell<Option<u64>> = const { std::cell::Cell::new(None) };
+}
+
+fn start_conversion_job(job: Option<u64>) {
+    let job = job.unwrap_or_else(|| CONVERSION_GENERATION.load(Ordering::SeqCst));
+    CONVERSION_JOB.with(|current| current.set(Some(job)));
+}
+
+fn check_cancelled() -> Result<(), String> {
+    let cancelled = CONVERSION_JOB
+        .with(|current| current.get())
+        .is_some_and(|job| job != CONVERSION_GENERATION.load(Ordering::SeqCst));
+    if cancelled { Err(CANCELLED.to_string()) } else { Ok(()) }
+}
+
+fn discard_if_cancelled(result: &Result<String, String>, output_path: &Path, started: std::time::SystemTime) {
+    CONVERSION_JOB.with(|current| current.set(None));
+    if !matches!(result, Err(e) if e == CANCELLED) {
+        return;
+    }
+    let written_now = fs::metadata(output_path).and_then(|m| m.modified()).is_ok_and(|modified| modified >= started);
+    if written_now {
+        let _ = fs::remove_file(output_path);
+    }
+}
+
 #[tauri::command]
-fn existing_output_folder(source_path: String, output_name: String, target_ext: String) -> Option<String> {
+fn begin_conversion() -> u64 {
+    CONVERSION_GENERATION.load(Ordering::SeqCst)
+}
+
+#[tauri::command]
+fn cancel_conversion() {
+    CONVERSION_GENERATION.fetch_add(1, Ordering::SeqCst);
+}
+
+fn output_folder(source_path: &Path, output_dir: Option<&str>) -> PathBuf {
+    match output_dir.filter(|dir| !dir.trim().is_empty()) {
+        Some(dir) => PathBuf::from(dir),
+        None => source_path.parent().map(Path::to_path_buf).unwrap_or_default(),
+    }
+}
+
+#[derive(serde::Serialize, Default)]
+#[serde(rename_all = "camelCase")]
+struct MediaInfo {
+    size: Option<u64>,
+    width: Option<u32>,
+    height: Option<u32>,
+    duration_ms: Option<u64>,
+}
+
+fn read_head(path: &Path, limit: u64) -> Option<Vec<u8>> {
+    use std::io::Read;
+    let mut head = Vec::new();
+    fs::File::open(path).ok()?.take(limit).read_to_end(&mut head).ok()?;
+    Some(head)
+}
+
+fn asf_duration_ms(path: &Path) -> Option<u64> {
+    let start = read_head(path, 24)?;
+    let size = u64::from_le_bytes(start.get(16..24)?.try_into().ok()?);
+    wmv::duration_ms(&read_head(path, size.clamp(30, 8 << 20))?)
+}
+
+fn media_duration_ms(path: &Path) -> Option<u64> {
+    let ext = path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
+    match ext.as_str() {
+        "flv" => return flv::duration_ms(&read_head(path, 64 * 1024)?),
+        "avi" => return avi::duration_ms(&read_head(path, 1 << 20)?),
+        "wmv" | "wma" | "asf" => return asf_duration_ms(path),
+        _ => {}
+    }
+    let file = fs::File::open(path).ok()?;
+    let mss = MediaSourceStream::new(Box::new(file), Default::default());
+    let mut hint = Hint::new();
+    if let Some(ext) = path.extension().and_then(|e| e.to_str()) {
+        hint.with_extension(ext);
+    }
+    let probed = symphonia::default::get_probe()
+        .format(&hint, mss, &FormatOptions::default(), &MetadataOptions::default())
+        .ok()?;
+    probed
+        .format
+        .tracks()
+        .iter()
+        .filter_map(|track| {
+            let params = &track.codec_params;
+            let frames = params.n_frames?;
+            if let Some(time_base) = params.time_base {
+                let time = time_base.calc_time(frames);
+                Some(time.seconds * 1000 + (time.frac * 1000.0) as u64)
+            } else {
+                params.sample_rate.filter(|&rate| rate > 0).map(|rate| frames * 1000 / rate as u64)
+            }
+        })
+        .max()
+}
+
+#[tauri::command]
+async fn media_info(paths: Vec<String>) -> Vec<MediaInfo> {
+    tauri::async_runtime::spawn_blocking(move || {
+        paths
+            .iter()
+            .map(|path| {
+                let path = Path::new(path);
+                let size = fs::metadata(path).ok().map(|m| m.len());
+                match image::image_dimensions(path) {
+                    Ok((width, height)) => MediaInfo { size, width: Some(width), height: Some(height), duration_ms: None },
+                    Err(_) => MediaInfo { size, duration_ms: media_duration_ms(path), ..Default::default() },
+                }
+            })
+            .collect()
+    })
+    .await
+    .unwrap_or_default()
+}
+
+#[tauri::command]
+fn existing_output_folder(source_path: String, output_name: String, target_ext: String, output_dir: Option<String>) -> Option<String> {
     let source_path = PathBuf::from(source_path);
-    let output_dir = source_path.parent().unwrap_or_else(|| Path::new(""));
+    let output_dir = output_folder(&source_path, output_dir.as_deref());
     let output_path = output_dir.join(format!("{output_name}.{}", target_ext.to_lowercase()));
     if output_path == source_path || !output_path.exists() {
         return None;
@@ -219,8 +348,17 @@ async fn convert_image(
     keep_metadata: bool,
     preserve_date: bool,
     overwrite: bool,
+    output_dir: Option<String>,
+    job: Option<u64>,
+    quality: Option<String>,
 ) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
+    start_conversion_job(job);
+    let quality = transcode::Quality::from_name(quality.as_deref());
+    let started = std::time::SystemTime::now();
+    let output_path = output_folder(Path::new(&source_path), output_dir.as_deref())
+        .join(format!("{output_name}.{}", target_ext.to_lowercase()));
+    let result = (|| -> Result<String, String> {
     let report = |percent: u8| {
         let _ = app.emit("conversion-progress", percent);
     };
@@ -247,10 +385,14 @@ async fn convert_image(
 
     report(10);
 
+    check_cancelled()?;
+
     let source_bytes =
         fs::read(&source_path).map_err(|e| format!("Couldn't read the source file: {e}"))?;
 
     report(30);
+
+    check_cancelled()?;
 
     let decoded = if is_heif_container(&source_ext) {
         decode_heif(&source_path).map_err(|e| format!("Couldn't decode this {} file: {e}", source_ext))?
@@ -261,11 +403,11 @@ async fn convert_image(
 
     report(55);
 
-    let output_dir = source_path.parent().unwrap_or_else(|| Path::new(""));
-    let output_path = output_dir.join(format!("{output_name}.{target_ext}"));
+    check_cancelled()?;
+
 
     if is_heif_container(&target_ext) && target_ext != "avif" {
-        encode_heif(&decoded, &output_path)
+        encode_heif(&decoded, &output_path, quality)
             .map_err(|e| format!("Couldn't encode the image as {}: {e}", target_ext))?;
     } else if target_ext == "ico" {
         encode_multi_size_ico(&decoded, &output_path)
@@ -275,9 +417,20 @@ async fn convert_image(
             .ok_or_else(|| format!("Unknown target format \"{}\".", target_ext))?;
 
         let mut encoded: Vec<u8> = Vec::new();
-        decoded
-            .write_to(&mut Cursor::new(&mut encoded), format)
-            .map_err(|e| format!("Couldn't encode the image as {}: {e}", target_ext))?;
+        let mut cursor = Cursor::new(&mut encoded);
+        let written = match format {
+            ImageFormat::Jpeg => decoded.write_with_encoder(image::codecs::jpeg::JpegEncoder::new_with_quality(
+                &mut cursor,
+                quality.pick(50, 65, 75, 92),
+            )),
+            ImageFormat::Avif => decoded.write_with_encoder(image::codecs::avif::AvifEncoder::new_with_speed_quality(
+                &mut cursor,
+                4,
+                quality.pick(50, 65, 80, 92),
+            )),
+            _ => decoded.write_to(&mut cursor, format),
+        };
+        written.map_err(|e| format!("Couldn't encode the image as {}: {e}", target_ext))?;
 
         if keep_metadata {
             if let Some(exif) = extract_exif(&source_bytes, &source_ext) {
@@ -291,6 +444,8 @@ async fn convert_image(
 
     report(85);
 
+    check_cancelled()?;
+
     if preserve_date {
         preserve_file_date(&source_path, &output_path);
     }
@@ -301,7 +456,12 @@ async fn convert_image(
 
     report(100);
 
+    check_cancelled()?;
+
     Ok(output_path.to_string_lossy().to_string())
+    })();
+    discard_if_cancelled(&result, &output_path, started);
+    result
     })
     .await
     .map_err(|e| format!("Conversion task panicked: {e}"))?
@@ -347,15 +507,19 @@ fn decode_to_pcm(source_path: &Path) -> Result<(Vec<f32>, u32, u16), String> {
         .unwrap_or("")
         .to_lowercase();
 
-    if source_ext == "wma" {
-        return Err(
-            "WMA is a proprietary codec with no open-source decoder available, so it can't be read yet."
-                .to_string(),
-        );
+    if matches!(source_ext.as_str(), "wma" | "wmv" | "asf") {
+        return decode_with_media_foundation(source_path);
     }
 
     if source_ext == "opus" {
         return decode_opus(source_path);
+    }
+
+    if matches!(source_ext.as_str(), "flv" | "avi") {
+        let raw = fs::read(source_path).map_err(|e| format!("Couldn't read the source file: {e}"))?;
+        let tracks = read_container(&raw, &source_ext)?;
+        let track = tracks.iter().find(|t| !t.video).ok_or("This file has no audio track.")?;
+        return transcode::decode_audio(track);
     }
 
     if source_ext == "webm" {
@@ -403,6 +567,7 @@ fn decode_to_pcm(source_path: &Path) -> Result<(Vec<f32>, u32, u16), String> {
     let mut channels: u16 = 0;
 
     loop {
+        check_cancelled()?;
         let packet = match format.next_packet() {
             Ok(packet) => packet,
             Err(SymphoniaError::IoError(_)) => break,
@@ -566,14 +731,19 @@ fn encode_flac(samples: &[f32], sample_rate: u32, channels: u16, output_path: &P
     fs::write(output_path, sink.as_slice()).map_err(|e| e.to_string())
 }
 
-fn encode_mp3(samples: &[f32], sample_rate: u32, channels: u16, output_path: &Path) -> Result<(), String> {
+fn encode_mp3_bytes(samples: &[f32], sample_rate: u32, channels: u16, quality: transcode::Quality) -> Result<Vec<u8>, String> {
     use mp3lame_encoder::{Builder, DualPcm, FlushNoGap};
 
     let mut builder = Builder::new().ok_or_else(|| "Couldn't create the MP3 encoder.".to_string())?;
     builder.set_num_channels(2).map_err(|e| format!("{:?}", e))?;
     builder.set_sample_rate(sample_rate).map_err(|e| format!("{:?}", e))?;
     builder
-        .set_brate(mp3lame_encoder::Bitrate::Kbps192)
+        .set_brate(quality.pick(
+            mp3lame_encoder::Bitrate::Kbps128,
+            mp3lame_encoder::Bitrate::Kbps160,
+            mp3lame_encoder::Bitrate::Kbps192,
+            mp3lame_encoder::Bitrate::Kbps320,
+        ))
         .map_err(|e| format!("{:?}", e))?;
     builder
         .set_quality(mp3lame_encoder::Quality::Best)
@@ -599,10 +769,15 @@ fn encode_mp3(samples: &[f32], sample_rate: u32, channels: u16, output_path: &Pa
         out_buffer.set_len(out_buffer.len() + flushed_size);
     }
 
-    fs::write(output_path, &out_buffer).map_err(|e| e.to_string())
+    Ok(out_buffer)
 }
 
-fn encode_ogg_vorbis(samples: &[f32], sample_rate: u32, channels: u16, output_path: &Path) -> Result<(), String> {
+fn encode_mp3(samples: &[f32], sample_rate: u32, channels: u16, output_path: &Path, quality: transcode::Quality) -> Result<(), String> {
+    let bytes = encode_mp3_bytes(samples, sample_rate, channels, quality)?;
+    fs::write(output_path, &bytes).map_err(|e| e.to_string())
+}
+
+fn encode_ogg_vorbis(samples: &[f32], sample_rate: u32, channels: u16, output_path: &Path, quality: transcode::Quality) -> Result<(), String> {
     use std::num::{NonZeroU32, NonZeroU8};
     use vorbis_rs::VorbisEncoderBuilder;
 
@@ -612,6 +787,9 @@ fn encode_ogg_vorbis(samples: &[f32], sample_rate: u32, channels: u16, output_pa
     let file = fs::File::create(output_path).map_err(|e| e.to_string())?;
     let mut builder = VorbisEncoderBuilder::new(sr, ch, file)
         .map_err(|e| format!("Vorbis setup error: {e}"))?;
+    builder.bitrate_management_strategy(vorbis_rs::VorbisBitrateManagementStrategy::QualityVbr {
+        target_quality: quality.pick(0.2, 0.35, 0.5, 0.8),
+    });
     let mut encoder = builder.build().map_err(|e| format!("Vorbis build error: {e}"))?;
 
     let planar = interleaved_to_planar(samples, channels as usize);
@@ -706,7 +884,7 @@ fn build_opus_tags() -> Vec<u8> {
     tags
 }
 
-fn encode_opus(samples: &[f32], sample_rate: u32, channels: u16, output_path: &Path) -> Result<(), String> {
+fn encode_opus(samples: &[f32], sample_rate: u32, channels: u16, output_path: &Path, quality: transcode::Quality) -> Result<(), String> {
     use ogg::writing::{PacketWriteEndInfo, PacketWriter};
     use opus_rs::{Application, OpusEncoder};
 
@@ -722,7 +900,7 @@ fn encode_opus(samples: &[f32], sample_rate: u32, channels: u16, output_path: &P
 
     let mut encoder = OpusEncoder::new(opus_rate as i32, channels as usize, Application::Audio)
         .map_err(|e| format!("Couldn't create the Opus encoder: {e}"))?;
-    encoder.bitrate_bps = 128_000;
+    encoder.bitrate_bps = quality.pick(64_000, 96_000, 128_000, 192_000);
 
     let file = fs::File::create(output_path).map_err(|e| e.to_string())?;
     let mut writer = PacketWriter::new(file);
@@ -769,7 +947,6 @@ fn encode_opus(samples: &[f32], sample_rate: u32, channels: u16, output_path: &P
 
 fn decode_opus(source_path: &Path) -> Result<(Vec<f32>, u32, u16), String> {
     use ogg::reading::PacketReader;
-    use opus_rs::OpusDecoder;
 
     let file = fs::File::open(source_path).map_err(|e| format!("Couldn't open the source file: {e}"))?;
     let mut reader = PacketReader::new(file);
@@ -781,35 +958,26 @@ fn decode_opus(source_path: &Path) -> Result<(Vec<f32>, u32, u16), String> {
     if head.data.len() < 19 || &head.data[0..8] != b"OpusHead" {
         return Err("This doesn't look like a valid Opus file (missing OpusHead).".to_string());
     }
-    let channels = head.data[9] as u16;
-    if channels == 0 || channels > 2 {
-        return Err("Only mono or stereo Opus files are supported.".to_string());
-    }
 
     reader
         .read_packet()
         .map_err(|e| format!("Couldn't read this Ogg file: {e}"))?
         .ok_or_else(|| "This Opus file is missing its comment header.".to_string())?;
 
-    let mut decoder = OpusDecoder::new(48000, channels as usize)
-        .map_err(|e| format!("Couldn't create the Opus decoder: {e}"))?;
-
-    const MAX_FRAME_SAMPLES: usize = 5760;
-    let mut pcm_buf = vec![0.0f32; MAX_FRAME_SAMPLES * channels as usize];
+    let mut decoder = opus_decode::OpusStreamDecoder::from_head(&head.data)?;
+    let channels = decoder.output_channels();
     let mut all_samples: Vec<f32> = Vec::new();
 
     while let Some(packet) = reader
         .read_packet()
         .map_err(|e| format!("Error while reading Opus audio data: {e}"))?
     {
-        if packet.data.is_empty() {
-            continue;
-        }
-        let decoded = decoder
-            .decode(&packet.data, MAX_FRAME_SAMPLES, &mut pcm_buf)
-            .map_err(|e| format!("Opus decode error: {e}"))?;
-        all_samples.extend_from_slice(&pcm_buf[..decoded * channels as usize]);
+        check_cancelled()?;
+        decoder.decode(&packet.data, &mut all_samples)?;
     }
+
+    let skip_samples = (decoder.pre_skip() as usize * channels as usize).min(all_samples.len());
+    all_samples.drain(0..skip_samples);
 
     if all_samples.is_empty() {
         return Err("No audio data could be decoded from this Opus file.".to_string());
@@ -833,43 +1001,20 @@ fn decode_webm_opus(source_path: &Path) -> Result<Option<(Vec<f32>, u32, u16)>, 
 
     let mut format = probed.format;
 
-    let (track_id, channels, pre_skip) = {
-        let opus_track = format
-            .tracks()
-            .iter()
-            .find(|t| t.codec_params.codec == CODEC_TYPE_OPUS);
-
-        match opus_track {
-            Some(t) => {
-                let parsed = t.codec_params.extra_data.as_deref().and_then(parse_opus_head);
-
-                let (channels, pre_skip) = match parsed {
-                    Some((c, skip)) => (c, skip),
-                    None => {
-                        let channels = t
-                            .codec_params
-                            .channels
-                            .map(|c| c.count() as u16)
-                            .filter(|&c| c > 0)
-                            .unwrap_or(2);
-                        (channels, 0u16)
-                    }
-                };
-                (t.id, channels, pre_skip)
-            }
-            None => return Ok(None),
-        }
+    let (track_id, mut decoder) = {
+        let Some(t) = format.tracks().iter().find(|t| t.codec_params.codec == CODEC_TYPE_OPUS) else {
+            return Ok(None);
+        };
+        let decoder = match t.codec_params.extra_data.as_deref() {
+            Some(head) if head.starts_with(b"OpusHead") => opus_decode::OpusStreamDecoder::from_head(head)?,
+            _ => opus_decode::OpusStreamDecoder::from_channels(
+                t.codec_params.channels.map(|c| c.count() as u16).filter(|&c| c > 0).unwrap_or(2),
+            )?,
+        };
+        (t.id, decoder)
     };
-
-    if channels == 0 || channels > 2 {
-        return Err("Opus extraction here only supports mono or stereo WebM audio tracks.".to_string());
-    }
-
-    let mut decoder = opus_rs::OpusDecoder::new(48000, channels as usize)
-        .map_err(|e| format!("Couldn't create the Opus decoder: {e}"))?;
-
-    const MAX_FRAME_SAMPLES: usize = 5760;
-    let mut pcm_buf = vec![0.0f32; MAX_FRAME_SAMPLES * channels as usize];
+    let channels = decoder.output_channels();
+    let pre_skip = decoder.pre_skip();
     let mut all_samples: Vec<f32> = Vec::new();
 
     loop {
@@ -888,10 +1033,8 @@ fn decode_webm_opus(source_path: &Path) -> Result<Option<(Vec<f32>, u32, u16)>, 
             continue;
         }
 
-        let decoded = decoder
-            .decode(&packet.data, MAX_FRAME_SAMPLES, &mut pcm_buf)
-            .map_err(|e| format!("Opus decode error: {e}"))?;
-        all_samples.extend_from_slice(&pcm_buf[..decoded * channels as usize]);
+        check_cancelled()?;
+        decoder.decode(&packet.data, &mut all_samples)?;
     }
 
     let skip_samples = (pre_skip as usize) * channels as usize;
@@ -904,18 +1047,6 @@ fn decode_webm_opus(source_path: &Path) -> Result<Option<(Vec<f32>, u32, u16)>, 
     }
 
     Ok(Some((all_samples, 48000, channels)))
-}
-
-fn parse_opus_head(data: &[u8]) -> Option<(u16, u16)> {
-    if data.len() < 19 || &data[0..8] != b"OpusHead" {
-        return None;
-    }
-    let channels = data[9] as u16;
-    let pre_skip = u16::from_le_bytes([data[10], data[11]]);
-    if channels == 0 {
-        return None;
-    }
-    Some((channels, pre_skip))
 }
 
 const AAC_SUPPORTED_RATES: [u32; 9] = [8000, 11025, 12000, 16000, 22050, 24000, 32000, 44100, 48000];
@@ -1096,7 +1227,7 @@ fn encode_via_media_foundation(
         .unwrap_or_else(|_| Err("The Media Foundation encoder thread panicked.".to_string()))
 }
 
-fn encode_m4a(samples: &[f32], sample_rate: u32, channels: u16, output_path: &Path) -> Result<(), String> {
+fn encode_m4a(samples: &[f32], sample_rate: u32, channels: u16, output_path: &Path, quality: transcode::Quality) -> Result<(), String> {
     use windows::Win32::Media::MediaFoundation::MFAudioFormat_AAC;
     encode_via_media_foundation(
         samples,
@@ -1106,7 +1237,7 @@ fn encode_m4a(samples: &[f32], sample_rate: u32, channels: u16, output_path: &Pa
         MfEncoderProfile {
             subtype: MFAudioFormat_AAC,
             valid_rates: &AAC_SUPPORTED_RATES,
-            bitrate_stereo: 192_000,
+            bitrate_stereo: quality.pick(96_000, 128_000, 192_000, 192_000),
             bitrate_mono: 96_000,
             adts: false,
             negotiate_bitrate: false,
@@ -1114,7 +1245,7 @@ fn encode_m4a(samples: &[f32], sample_rate: u32, channels: u16, output_path: &Pa
     )
 }
 
-fn encode_aac(samples: &[f32], sample_rate: u32, channels: u16, output_path: &Path) -> Result<(), String> {
+fn encode_aac(samples: &[f32], sample_rate: u32, channels: u16, output_path: &Path, quality: transcode::Quality) -> Result<(), String> {
     use windows::Win32::Media::MediaFoundation::MFAudioFormat_AAC;
     encode_via_media_foundation(
         samples,
@@ -1124,7 +1255,7 @@ fn encode_aac(samples: &[f32], sample_rate: u32, channels: u16, output_path: &Pa
         MfEncoderProfile {
             subtype: MFAudioFormat_AAC,
             valid_rates: &AAC_SUPPORTED_RATES,
-            bitrate_stereo: 192_000,
+            bitrate_stereo: quality.pick(96_000, 128_000, 192_000, 192_000),
             bitrate_mono: 96_000,
             adts: true,
             negotiate_bitrate: false,
@@ -1132,26 +1263,20 @@ fn encode_aac(samples: &[f32], sample_rate: u32, channels: u16, output_path: &Pa
     )
 }
 
-#[allow(dead_code)]
-const WMA_SUPPORTED_RATES: [u32; 7] = [8000, 11025, 16000, 22050, 32000, 44100, 48000];
-
-#[allow(dead_code)]
-fn encode_wma(samples: &[f32], sample_rate: u32, channels: u16, output_path: &Path) -> Result<(), String> {
-    use windows::Win32::Media::MediaFoundation::MFAudioFormat_WMAudioV8;
-    encode_via_media_foundation(
-        samples,
-        sample_rate,
-        channels,
-        output_path,
-        MfEncoderProfile {
-            subtype: MFAudioFormat_WMAudioV8,
-            valid_rates: &WMA_SUPPORTED_RATES,
-            bitrate_stereo: 128_000,
-            bitrate_mono: 64_000,
-            adts: false,
-            negotiate_bitrate: true,
-        },
-    )
+fn encode_wma(samples: &[f32], sample_rate: u32, channels: u16, output_path: &Path, quality: transcode::Quality) -> Result<(), String> {
+    on_media_foundation_thread(|| {
+        let spec = wmv::AudioSpec { rate: sample_rate, channels, bitrate: quality.pick(96_000, 128_000, 160_000, 192_000) };
+        let writer = wmv::Writer::create(output_path, None, Some(spec))?;
+        let resampled = if writer.audio_rate == sample_rate {
+            samples.to_vec()
+        } else {
+            resample_interleaved(samples, channels, sample_rate, writer.audio_rate)?
+        };
+        let pcm16: Vec<u8> = resampled.iter().flat_map(|&s| to_i16(s).to_le_bytes()).collect();
+        let mut written = 0usize;
+        write_wma_until(&writer, &pcm16, &mut written, 2 * channels as usize, 0, None)?;
+        writer.finish()
+    })
 }
 
 #[tauri::command]
@@ -1162,8 +1287,17 @@ async fn convert_audio(
     target_ext: String,
     preserve_date: bool,
     overwrite: bool,
+    output_dir: Option<String>,
+    job: Option<u64>,
+    quality: Option<String>,
 ) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
+    start_conversion_job(job);
+    let quality = transcode::Quality::from_name(quality.as_deref());
+    let started = std::time::SystemTime::now();
+    let output_path = output_folder(Path::new(&source_path), output_dir.as_deref())
+        .join(format!("{output_name}.{}", target_ext.to_lowercase()));
+    let result = (|| -> Result<String, String> {
     let report = |percent: u8| {
         let _ = app.emit("conversion-progress", percent);
     };
@@ -1173,7 +1307,7 @@ async fn convert_audio(
 
     let supported = matches!(
         target_ext.as_str(),
-        "wav" | "aiff" | "flac" | "mp3" | "ogg" | "opus" | "m4a" | "aac"
+        "wav" | "aiff" | "flac" | "mp3" | "ogg" | "opus" | "m4a" | "aac" | "wma"
     );
     if !supported {
         return Err(format!(
@@ -1184,8 +1318,8 @@ async fn convert_audio(
 
     report(5);
 
-    let output_dir = source_path.parent().unwrap_or_else(|| Path::new(""));
-    let output_path = output_dir.join(format!("{output_name}.{target_ext}"));
+    check_cancelled()?;
+
     let source_ext = source_path.extension().and_then(|e| e.to_str()).unwrap_or("").to_lowercase();
 
     let extracted = if target_ext == "aac" { extract_aac(&source_path, &source_ext) } else { None };
@@ -1193,23 +1327,33 @@ async fn convert_audio(
         fs::write(&output_path, adts).map_err(|e| format!("Couldn't write the output file: {e}"))?;
     } else {
         let (samples, sample_rate, channels) = decode_to_pcm(&source_path)?;
+        let (samples, channels) = if matches!(target_ext.as_str(), "mp3" | "opus" | "m4a" | "aac" | "wma") {
+            transcode::to_stereo_or_mono(samples, channels)
+        } else {
+            (samples, channels)
+        };
 
         report(50);
+
+        check_cancelled()?;
 
         match target_ext.as_str() {
             "wav" => encode_wav(&samples, sample_rate, channels, &output_path)?,
             "aiff" => encode_aiff(&samples, sample_rate, channels, &output_path)?,
             "flac" => encode_flac(&samples, sample_rate, channels, &output_path)?,
-            "mp3" => encode_mp3(&samples, sample_rate, channels, &output_path)?,
-            "ogg" => encode_ogg_vorbis(&samples, sample_rate, channels, &output_path)?,
-            "opus" => encode_opus(&samples, sample_rate, channels, &output_path)?,
-            "m4a" => encode_m4a(&samples, sample_rate, channels, &output_path)?,
-            "aac" => encode_aac(&samples, sample_rate, channels, &output_path)?,
+            "mp3" => encode_mp3(&samples, sample_rate, channels, &output_path, quality)?,
+            "ogg" => encode_ogg_vorbis(&samples, sample_rate, channels, &output_path, quality)?,
+            "opus" => encode_opus(&samples, sample_rate, channels, &output_path, quality)?,
+            "m4a" => encode_m4a(&samples, sample_rate, channels, &output_path, quality)?,
+            "aac" => encode_aac(&samples, sample_rate, channels, &output_path, quality)?,
+            "wma" => encode_wma(&samples, sample_rate, channels, &output_path, quality)?,
             _ => unreachable!(),
         }
     }
 
     report(85);
+
+    check_cancelled()?;
 
     if preserve_date {
         preserve_file_date(&source_path, &output_path);
@@ -1221,7 +1365,12 @@ async fn convert_audio(
 
     report(100);
 
+    check_cancelled()?;
+
     Ok(output_path.to_string_lossy().to_string())
+    })();
+    discard_if_cancelled(&result, &output_path, started);
+    result
     })
     .await
     .map_err(|e| format!("Conversion task panicked: {e}"))?
@@ -1260,7 +1409,7 @@ fn mkv_codec_from_mf(
             return Ok(("V_MPEG4/ISO/AVC".to_string(), avcc));
         }
         if *subtype == MFVideoFormat_HEVC {
-            return Err("HEVC (H.265) to MKV isn't supported yet, only H.264. Tell me if you need this and I'll add proper hvcC handling.".to_string());
+            return Err("HEVC (H.265) video can't be converted to MKV yet. Only H.264 video is supported.".to_string());
         }
         return Err("This file's video codec isn't H.264 or HEVC, so it can't be repackaged into MKV without re-encoding.".to_string());
     }
@@ -1391,7 +1540,9 @@ fn remux_video_container(source_path: &Path, output_path: &Path, target_ext: &st
     let source_url = HSTRING::from(source_path.to_string_lossy().as_ref());
     let write_url = HSTRING::from(write_path.to_string_lossy().as_ref());
 
+    let job = CONVERSION_JOB.with(|current| current.get());
     let handle = std::thread::spawn(move || -> Result<(), String> {
+        CONVERSION_JOB.with(|current| current.set(job));
         unsafe {
             CoInitializeEx(None, COINIT_APARTMENTTHREADED)
                 .ok()
@@ -1462,6 +1613,7 @@ fn remux_video_container(source_path: &Path, output_path: &Path, target_ext: &st
                     writer.BeginWriting().map_err(|e| format!("Couldn't begin writing the output file: {e}"))?;
 
                     loop {
+                        check_cancelled()?;
                         let mut actual_stream_index: u32 = 0;
                         let mut stream_flags: u32 = 0;
                         let mut timestamp: i64 = 0;
@@ -1504,9 +1656,13 @@ fn remux_video_container(source_path: &Path, output_path: &Path, target_ext: &st
         }
     });
 
-    handle
+    let joined = handle
         .join()
-        .unwrap_or_else(|_| Err("The Media Foundation remux thread panicked.".to_string()))?;
+        .unwrap_or_else(|_| Err("The Media Foundation remux thread panicked.".to_string()));
+    if joined.is_err() && needs_rename {
+        let _ = fs::remove_file(&write_path);
+    }
+    joined?;
 
     if needs_rename {
         fs::rename(&write_path, output_path).map_err(|e| {
@@ -1544,7 +1700,9 @@ fn remux_container_to_mkv(source_path: &Path, output_path: &Path) -> Result<(), 
 
     let source_url = HSTRING::from(source_path.to_string_lossy().as_ref());
 
+    let job = CONVERSION_JOB.with(|current| current.get());
     let handle = std::thread::spawn(move || -> Result<(Vec<TrackOut>, Vec<Pkt>), String> {
+        CONVERSION_JOB.with(|current| current.set(job));
         unsafe {
             CoInitializeEx(None, COINIT_APARTMENTTHREADED)
                 .ok()
@@ -1622,6 +1780,7 @@ fn remux_container_to_mkv(source_path: &Path, output_path: &Path) -> Result<(), 
 
                     let mut packets: Vec<Pkt> = Vec::new();
                     loop {
+                        check_cancelled()?;
                         let mut actual_stream_index: u32 = 0;
                         let mut stream_flags: u32 = 0;
                         let mut timestamp: i64 = 0;
@@ -1755,15 +1914,17 @@ fn remux_container_to_mkv(source_path: &Path, output_path: &Path) -> Result<(), 
 fn read_container<'a>(raw: &'a [u8], ext: &str) -> Result<Vec<demux::Track<'a>>, String> {
     match ext {
         "mkv" | "webm" => demux::read_matroska(raw),
+        "flv" => flv::read(raw),
+        "avi" => avi::read(raw),
         "mp4" | "mov" | "m4a" => demux::read_mp4(raw),
         other => Err(format!("Reading .{other} files isn't supported here.")),
     }
 }
 
-fn encode_aac_for_mux(samples: &[f32], sample_rate: u32, channels: u16) -> Result<Vec<u8>, String> {
+fn encode_aac_for_mux(samples: &[f32], sample_rate: u32, channels: u16, quality: transcode::Quality) -> Result<Vec<u8>, String> {
     let nanos = std::time::SystemTime::now().duration_since(std::time::UNIX_EPOCH).map(|d| d.as_nanos()).unwrap_or(0);
     let temp = std::env::temp_dir().join(format!("ftools_aac_{}_{nanos}.m4a", std::process::id()));
-    let result = encode_m4a(samples, sample_rate, channels, &temp)
+    let result = encode_m4a(samples, sample_rate, channels, &temp, quality)
         .and_then(|_| fs::read(&temp).map_err(|e| format!("Couldn't read the encoded audio back: {e}")));
     let _ = fs::remove_file(&temp);
     result
@@ -1780,6 +1941,32 @@ fn write_output(output_path: &Path, write: impl FnOnce(&mut std::io::BufWriter<f
     result
 }
 
+fn media_target(ext: &str) -> transcode::Target {
+    match ext {
+        "webm" => transcode::Target::WebM,
+        "avi" => transcode::Target::Avi,
+        _ => transcode::Target::Mp4,
+    }
+}
+
+fn encode_audio_for(target: transcode::Target, samples: &[f32], rate: u32, channels: u16, quality: transcode::Quality) -> Result<Vec<u8>, String> {
+    if target == transcode::Target::Avi {
+        encode_mp3_bytes(samples, rate, channels, quality)
+    } else {
+        encode_aac_for_mux(samples, rate, channels, quality)
+    }
+}
+
+fn write_tracks(output_path: &Path, tracks: &[demux::Track], target_ext: &str) -> Result<(), String> {
+    write_output(output_path, |w| match target_ext {
+        "mp4" | "mov" => mp4::write(tracks, w),
+        "flv" => flv::write(tracks, w),
+        "avi" => avi::write(tracks, w),
+        "webm" => matroska::write(tracks, true, w),
+        _ => matroska::write(tracks, false, w),
+    })
+}
+
 fn convert_to_gif(source_path: &Path, output_path: &Path, source_ext: &str, report: &dyn Fn(u8)) -> Result<(), String> {
     let raw = fs::read(source_path).map_err(|e| format!("Couldn't read the source file: {e}"))?;
     let tracks = read_container(&raw, source_ext)?;
@@ -1788,16 +1975,11 @@ fn convert_to_gif(source_path: &Path, output_path: &Path, source_ext: &str, repo
     write_output(output_path, |w| animation::video_to_gif(&tracks, w, &progress))
 }
 
-fn convert_from_gif(source_path: &Path, output_path: &Path, target_ext: &str) -> Result<(), String> {
+fn convert_from_gif(source_path: &Path, output_path: &Path, target_ext: &str, quality: transcode::Quality) -> Result<(), String> {
     let raw = fs::read(source_path).map_err(|e| format!("Couldn't read the source file: {e}"))?;
     let target = if target_ext == "webm" { transcode::Target::WebM } else { transcode::Target::Mp4 };
-    let track = animation::gif_to_video(&raw, target)?;
-    let tracks = [track];
-    write_output(output_path, |w| match target_ext {
-        "mp4" | "mov" => mp4::write(&tracks, w),
-        "webm" => matroska::write(&tracks, true, w),
-        _ => matroska::write(&tracks, false, w),
-    })
+    let track = animation::gif_to_video(&raw, target, quality)?;
+    write_tracks(output_path, &[track], target_ext)
 }
 
 fn convert_container(
@@ -1805,6 +1987,7 @@ fn convert_container(
     output_path: &Path,
     source_ext: &str,
     target_ext: &str,
+    quality: transcode::Quality,
     report: &dyn Fn(u8),
 ) -> Result<(), String> {
     let raw = fs::read(source_path).map_err(|e| format!("Couldn't read the source file: {e}"))?;
@@ -1812,21 +1995,223 @@ fn convert_container(
     if tracks.is_empty() {
         return Err("No audio or video tracks were found in this file.".to_string());
     }
+    let target = media_target(target_ext);
+    let encoder = |samples: &[f32], rate: u32, channels: u16| encode_audio_for(target, samples, rate, channels, quality);
     let tracks = match target_ext {
-        "webm" => transcode::prepare(tracks, transcode::Target::WebM, &encode_aac_for_mux, report)?,
-        "mp4" | "mov" => transcode::prepare(tracks, transcode::Target::Mp4, &encode_aac_for_mux, report)?,
-        _ => tracks,
+        "mkv" => tracks,
+        _ => transcode::prepare(tracks, target, &encoder, quality, report)?,
     };
+    write_tracks(output_path, &tracks, target_ext)
+}
 
-    write_output(output_path, |w| match target_ext {
-        "mp4" | "mov" => mp4::write(&tracks, w),
-        "webm" => matroska::write(&tracks, true, w),
-        _ => matroska::write(&tracks, false, w),
+fn on_media_foundation_thread<T: Send>(work: impl FnOnce() -> Result<T, String> + Send) -> Result<T, String> {
+    let job = CONVERSION_JOB.with(|current| current.get());
+    std::thread::scope(|scope| {
+        scope
+            .spawn(move || {
+                CONVERSION_JOB.with(|current| current.set(job));
+                let _session = wmv::Session::start()?;
+                work()
+            })
+            .join()
+            .unwrap_or_else(|_| Err("The Media Foundation thread panicked.".to_string()))
+    })
+}
+
+fn decode_with_media_foundation(source_path: &Path) -> Result<(Vec<f32>, u32, u16), String> {
+    on_media_foundation_thread(|| {
+        let mut pcm = Vec::new();
+        let mut format = None;
+        wmv::read(source_path, false, true, |media| {
+            check_cancelled()?;
+            if let wmv::Media::Audio { pcm: chunk, rate, channels, .. } = media {
+                format.get_or_insert((rate, channels));
+                pcm.extend_from_slice(chunk);
+            }
+            Ok(())
+        })?;
+        let (rate, channels) = format.ok_or("This file has no audio track that Windows can decode.")?;
+        if pcm.is_empty() {
+            return Err("No audio data could be decoded from this file.".to_string());
+        }
+        Ok((pcm, rate, channels))
+    })
+}
+
+type DecodedAudio = (Vec<f32>, u32, u16, i64);
+
+fn wmv_to_tracks(
+    source_path: &Path,
+    target: transcode::Target,
+    quality: transcode::Quality,
+    report: &(dyn Fn(u8) + Sync),
+) -> Result<Vec<demux::Track<'static>>, String> {
+    let duration_ms = asf_duration_ms(source_path).unwrap_or(0);
+    let file_bits = fs::metadata(source_path).map(|m| m.len() * 8).unwrap_or(0);
+    let source_bps = if duration_ms > 0 { file_bits * 1000 / duration_ms } else { 2_000_000 };
+    let factor = if target == transcode::Target::WebM { 0.8 } else { 1.5 } * quality.pick(0.5, 0.75, 1.0, 1.6);
+    let bitrate = (source_bps.saturating_sub(128_000).max(300_000) as f64 * factor) as u64;
+
+    let (video, audio) = on_media_foundation_thread(|| -> Result<(Option<demux::Track<'static>>, Option<DecodedAudio>), String> {
+        let mut encoder: Option<transcode::VideoEncoder> = None;
+        let mut packets = Vec::new();
+        let mut size = (0usize, 0usize);
+        let mut frame_ms = 33u64;
+        let mut start: Option<i64> = None;
+        let mut pending: Option<(transcode::Picture, i64)> = None;
+        let mut pcm: Vec<f32> = Vec::new();
+        let mut format: Option<(u32, u16, i64)> = None;
+        wmv::read(source_path, true, true, |media| {
+            check_cancelled()?;
+            match media {
+                wmv::Media::Video { width, height, fps, i420, pts_ns } => {
+                    let base = *start.get_or_insert(pts_ns);
+                    if encoder.is_none() {
+                        size = (width, height);
+                        frame_ms = (1000.0 / fps.max(1.0)).round().max(1.0) as u64;
+                        encoder = Some(transcode::VideoEncoder::new(target, width, height, bitrate, fps)?);
+                    }
+                    if (width, height) != size {
+                        return Err("This video changes resolution midway, which isn't supported yet.".to_string());
+                    }
+                    if let Some((picture, previous)) = pending.take() {
+                        let duration = ((pts_ns - previous) / 1_000_000).max(1) as u64;
+                        packets.extend(encoder.as_mut().unwrap().encode(picture, (previous - base) / 1_000_000, duration)?);
+                    }
+                    pending = Some((transcode::Picture { width, height, i420: i420.to_vec() }, pts_ns));
+                    if duration_ms > 0 {
+                        report((10 + (pts_ns / 1_000_000).max(0) as u64 * 75 / duration_ms).min(85) as u8);
+                    }
+                }
+                wmv::Media::Audio { pcm: chunk, rate, channels, pts_ns } => {
+                    format.get_or_insert((rate, channels, pts_ns));
+                    pcm.extend_from_slice(chunk);
+                }
+            }
+            Ok(())
+        })?;
+        let video = match encoder {
+            Some(mut encoder) => {
+                let base = start.unwrap_or(0);
+                if let Some((picture, previous)) = pending.take() {
+                    packets.extend(encoder.encode(picture, (previous - base) / 1_000_000, frame_ms)?);
+                }
+                Some(transcode::encoded_video_track(encoder, packets, size.0, size.1, base)?)
+            }
+            None => None,
+        };
+        Ok((video, format.map(|(rate, channels, start)| (pcm, rate, channels, start))))
+    })?;
+
+    let mut tracks: Vec<demux::Track<'static>> = video.into_iter().collect();
+    if let Some((pcm, rate, channels, start)) = audio {
+        let (pcm, channels) = transcode::to_stereo_or_mono(pcm, channels);
+        let encoder = |samples: &[f32], rate: u32, channels: u16| encode_audio_for(target, samples, rate, channels, quality);
+        tracks.push(transcode::encode_audio_track(&pcm, rate, channels, start, target, &encoder, quality)?);
+    }
+    if tracks.is_empty() {
+        return Err("No audio or video could be decoded from this file.".to_string());
+    }
+    Ok(tracks)
+}
+
+fn write_wma_until(
+    writer: &wmv::Writer,
+    pcm16: &[u8],
+    written: &mut usize,
+    block: usize,
+    offset_ns: i64,
+    until_ns: Option<i64>,
+) -> Result<(), String> {
+    let rate = writer.audio_rate.max(1) as i64;
+    let chunk = (rate as usize / 10).max(1) * block;
+    while *written + block <= pcm16.len() {
+        let pts = offset_ns + (*written / block) as i64 * 1_000_000_000 / rate;
+        if until_ns.is_some_and(|until| pts > until) {
+            break;
+        }
+        let end = (*written + chunk).min(pcm16.len() / block * block);
+        let frames = ((end - *written) / block) as i64;
+        writer.audio(&pcm16[*written..end], pts, frames * 1_000_000_000 / rate)?;
+        *written = end;
+    }
+    Ok(())
+}
+
+fn tracks_to_wmv(
+    tracks: &[demux::Track],
+    output_path: &Path,
+    quality: transcode::Quality,
+    report: &(dyn Fn(u8) + Sync),
+) -> Result<(), String> {
+    let video = tracks.iter().find(|t| t.video && !t.samples.is_empty());
+    let audio = match tracks.iter().find(|t| !t.video && !t.samples.is_empty()) {
+        Some(t) => Some(transcode::audio_for_encoding(t)?),
+        None => None,
+    };
+    if video.is_none() && audio.is_none() {
+        return Err("No audio or video tracks were found in this file.".to_string());
+    }
+    let timing = video.map(|t| transcode::video_timing(t).0);
+    let base = timing.as_ref().map(|t| t.base_ns).into_iter().chain(audio.as_ref().map(|a| a.3)).min().unwrap_or(0);
+    let fps = timing.as_ref().map(|t| (1000.0 / t.frame_ms) as f32).unwrap_or(30.0);
+    let video_bps = video
+        .map(|t| if t.codec == demux::Codec::Mjpeg { (t.width as f64 * t.height as f64 * fps as f64 * 0.15) as u64 } else { t.bitrate_bps() })
+        .unwrap_or(0);
+    let bitrate = ((video_bps as f64 * 1.5 * quality.pick(0.5, 0.75, 1.0, 1.6)) as u64).clamp(400_000, 20_000_000) as u32;
+    let audio_bitrate = quality.pick(96_000, 128_000, 160_000, 192_000);
+    let audio_offset = audio.as_ref().map(|a| a.3 - base).unwrap_or(0);
+    let block = 2 * audio.as_ref().map(|a| a.2 as usize).unwrap_or(1);
+    let total = video.map(|t| t.samples.len()).unwrap_or(1).max(1);
+
+    on_media_foundation_thread(|| {
+        let open = |size: Option<(u32, u32)>| -> Result<(wmv::Writer, Vec<u8>), String> {
+            let video_spec = size.map(|(width, height)| wmv::VideoSpec { width, height, fps, bitrate });
+            let audio_spec = audio.as_ref().map(|a| wmv::AudioSpec { rate: a.1, channels: a.2, bitrate: audio_bitrate });
+            let writer = wmv::Writer::create(output_path, video_spec, audio_spec)?;
+            let pcm16 = match &audio {
+                Some((pcm, rate, channels, _)) => {
+                    let resampled =
+                        if writer.audio_rate == *rate { pcm.clone() } else { resample_interleaved(pcm, *channels, *rate, writer.audio_rate)? };
+                    resampled.iter().flat_map(|&s| to_i16(s).to_le_bytes()).collect()
+                }
+                None => Vec::new(),
+            };
+            Ok((writer, pcm16))
+        };
+
+        let mut writer: Option<wmv::Writer> = None;
+        let mut pcm16: Vec<u8> = Vec::new();
+        let mut written = 0usize;
+        if let (Some(t), Some(timing)) = (video, timing.as_ref()) {
+            let progress = |i: usize| report((10 + i * 75 / total).min(85) as u8);
+            transcode::for_each_frame(t, &progress, |picture, pts_ms, duration_ms| {
+                if writer.is_none() {
+                    let (w, p) = open(Some((picture.width as u32, picture.height as u32)))?;
+                    writer = Some(w);
+                    pcm16 = p;
+                }
+                let w = writer.as_ref().unwrap();
+                let pts_ns = timing.base_ns - base + pts_ms * 1_000_000;
+                write_wma_until(w, &pcm16, &mut written, block, audio_offset, Some(pts_ns + 1_000_000_000))?;
+                w.video(&picture.i420, pts_ns, duration_ms as i64 * 1_000_000)
+            })?;
+        }
+        let writer = match writer {
+            Some(w) => w,
+            None => {
+                let (w, p) = open(None)?;
+                pcm16 = p;
+                w
+            }
+        };
+        write_wma_until(&writer, &pcm16, &mut written, block, audio_offset, None)?;
+        writer.finish()
     })
 }
 
 fn extract_aac(source_path: &Path, source_ext: &str) -> Option<Vec<u8>> {
-    if !matches!(source_ext, "mp4" | "mov" | "m4a" | "mkv" | "webm") {
+    if !matches!(source_ext, "mp4" | "mov" | "m4a" | "mkv" | "webm" | "flv" | "avi") {
         return None;
     }
     let raw = fs::read(source_path).ok()?;
@@ -1842,8 +2227,17 @@ async fn convert_video(
     target_ext: String,
     preserve_date: bool,
     overwrite: bool,
+    output_dir: Option<String>,
+    job: Option<u64>,
+    quality: Option<String>,
 ) -> Result<String, String> {
     tauri::async_runtime::spawn_blocking(move || {
+    start_conversion_job(job);
+    let quality = transcode::Quality::from_name(quality.as_deref());
+    let started = std::time::SystemTime::now();
+    let output_path = output_folder(Path::new(&source_path), output_dir.as_deref())
+        .join(format!("{output_name}.{}", target_ext.to_lowercase()));
+    let result = (|| -> Result<String, String> {
     let report = |percent: u8| {
         let _ = app.emit("conversion-progress", percent);
     };
@@ -1858,12 +2252,15 @@ async fn convert_video(
 
     let mf_pair = matches!(source_ext.as_str(), "mp4" | "mov") && matches!(target_ext.as_str(), "mp4" | "mov");
     let mf_to_mkv = matches!(source_ext.as_str(), "mp4" | "mov") && target_ext == "mkv";
-    let is_video = |ext: &str| matches!(ext, "mp4" | "mov" | "mkv" | "webm");
+    let is_video = |ext: &str| matches!(ext, "mp4" | "mov" | "mkv" | "webm" | "flv" | "avi");
+    let is_asf = |ext: &str| matches!(ext, "wmv" | "asf");
     let native = is_video(&source_ext) && is_video(&target_ext) && source_ext != target_ext;
     let to_gif = is_video(&source_ext) && target_ext == "gif";
     let from_gif = source_ext == "gif" && is_video(&target_ext);
+    let to_wmv = (is_video(&source_ext) || source_ext == "gif") && target_ext == "wmv";
+    let from_wmv = is_asf(&source_ext) && (is_video(&target_ext) || target_ext == "gif");
 
-    if !mf_pair && !mf_to_mkv && !native && !to_gif && !from_gif {
+    if !mf_pair && !mf_to_mkv && !native && !to_gif && !from_gif && !to_wmv && !from_wmv {
         return Err(format!(
             "Converting \"{}\" to \"{}\" isn't supported yet.",
             source_ext, target_ext
@@ -1872,22 +2269,42 @@ async fn convert_video(
 
     report(5);
 
-    let output_dir = source_path.parent().unwrap_or_else(|| Path::new(""));
-    let output_path = output_dir.join(format!("{output_name}.{target_ext}"));
+    check_cancelled()?;
 
-    if mf_pair {
+
+    if to_wmv {
+        let raw = fs::read(&source_path).map_err(|e| format!("Couldn't read the source file: {e}"))?;
+        let tracks = if source_ext == "gif" {
+            vec![animation::gif_to_video(&raw, transcode::Target::Mp4, transcode::Quality::Best)?]
+        } else {
+            read_container(&raw, &source_ext)?
+        };
+        tracks_to_wmv(&tracks, &output_path, quality, &report)?;
+    } else if from_wmv {
+        if target_ext == "gif" {
+            let tracks = wmv_to_tracks(&source_path, transcode::Target::Mp4, transcode::Quality::Best, &report)?;
+            let total = tracks.iter().find(|t| t.video).map(|t| t.samples.len()).unwrap_or(0).max(1);
+            let progress = |i: usize| report((50 + i * 35 / total).min(85) as u8);
+            write_output(&output_path, |w| animation::video_to_gif(&tracks, w, &progress))?;
+        } else {
+            let tracks = wmv_to_tracks(&source_path, media_target(&target_ext), quality, &report)?;
+            write_tracks(&output_path, &tracks, &target_ext)?;
+        }
+    } else if mf_pair {
         remux_video_container(&source_path, &output_path, &target_ext)?;
     } else if mf_to_mkv {
         remux_container_to_mkv(&source_path, &output_path)?;
     } else if to_gif {
         convert_to_gif(&source_path, &output_path, &source_ext, &report)?;
     } else if from_gif {
-        convert_from_gif(&source_path, &output_path, &target_ext)?;
+        convert_from_gif(&source_path, &output_path, &target_ext, quality)?;
     } else {
-        convert_container(&source_path, &output_path, &source_ext, &target_ext, &report)?;
+        convert_container(&source_path, &output_path, &source_ext, &target_ext, quality, &report)?;
     }
 
     report(85);
+
+    check_cancelled()?;
 
     if preserve_date {
         preserve_file_date(&source_path, &output_path);
@@ -1899,7 +2316,12 @@ async fn convert_video(
 
     report(100);
 
+    check_cancelled()?;
+
     Ok(output_path.to_string_lossy().to_string())
+    })();
+    discard_if_cancelled(&result, &output_path, started);
+    result
     })
     .await
     .map_err(|e| format!("Conversion task panicked: {e}"))?
@@ -2091,6 +2513,13 @@ fn ac_jittered_duration(base_ms: u64) -> std::time::Duration {
     std::time::Duration::from_millis((base + jitter).max(1) as u64)
 }
 
+fn ac_randomized_duration(base_ms: u64, percent: u64) -> std::time::Duration {
+    let base = base_ms.max(1) as i64;
+    let amplitude = base * percent.min(90) as i64 / 100;
+    let jitter = if amplitude > 0 { rand::thread_rng().gen_range(-amplitude..=amplitude) } else { 0 };
+    std::time::Duration::from_millis((base + jitter).max(1) as u64)
+}
+
 enum AcResolvedAction {
     Mouse(AcMouseFlags),
     Keyboard(Vec<AcKeyPress>, AcKeyPress),
@@ -2176,6 +2605,7 @@ async fn start_autoclicker_loop(
     actions: Vec<AcAction>,
     hold_ms: u64,
     interval_ms: u64,
+    random_percent: Option<u64>,
     generation: u64,
     state: tauri::State<'_, AcClickerState>,
 ) -> Result<(), String> {
@@ -2199,12 +2629,13 @@ async fn start_autoclicker_loop(
         }
     }
 
+    let random_percent = random_percent.unwrap_or(0);
     let _high_res_timer = AcHighResTimer::acquire();
     let mut generation_rx = state.generation.subscribe();
 
     loop {
         tokio::select! {
-            _ = tokio::time::sleep(ac_jittered_duration(interval_ms)) => {},
+            _ = tokio::time::sleep(ac_randomized_duration(interval_ms, random_percent)) => {},
             _ = generation_rx.changed() => { break; }
         }
         if *generation_rx.borrow() != generation {
@@ -2305,6 +2736,8 @@ mod audio_encoder_tests {
 }
 
 fn main() {
+    update::remove_previous_version();
+
     tauri::Builder::default()
         .plugin(tauri_plugin_single_instance::init(|app, _argv, _cwd| {
             let _ = app
@@ -2346,6 +2779,11 @@ fn main() {
             Ok(())
         })
         .invoke_handler(tauri::generate_handler![
+            update::check_for_update,
+            update::install_update,
+            begin_conversion,
+            cancel_conversion,
+            media_info,
             existing_output_folder,
             convert_image,
             convert_audio,

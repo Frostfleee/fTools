@@ -8,13 +8,41 @@ use openh264::encoder::{
 use openh264::formats::{YUVBuffer, YUVSource};
 use openh264::{OpenH264API, Timestamp};
 use symphonia::core::audio::{Channels, SampleBuffer};
-use symphonia::core::codecs::{CodecParameters, DecoderOptions, CODEC_TYPE_AAC, CODEC_TYPE_MP3, CODEC_TYPE_VORBIS};
+use symphonia::core::codecs::{CodecParameters, DecoderOptions, CODEC_TYPE_AAC, CODEC_TYPE_MP2, CODEC_TYPE_MP3, CODEC_TYPE_VORBIS};
 use symphonia::core::formats::Packet;
 
 use crate::demux::{self, Codec, Sample, Track};
 use crate::vpx;
 
-pub type AacEncoder<'e> = &'e dyn Fn(&[f32], u32, u16) -> Result<Vec<u8>, String>;
+pub type AudioEncoder<'e> = &'e dyn Fn(&[f32], u32, u16) -> Result<Vec<u8>, String>;
+
+#[derive(Clone, Copy, PartialEq, Eq, Debug)]
+pub enum Quality {
+    Low,
+    Medium,
+    High,
+    Best,
+}
+
+impl Quality {
+    pub fn from_name(name: Option<&str>) -> Self {
+        match name {
+            Some("low") => Quality::Low,
+            Some("medium") => Quality::Medium,
+            Some("best") => Quality::Best,
+            _ => Quality::High,
+        }
+    }
+
+    pub fn pick<T>(self, low: T, medium: T, high: T, best: T) -> T {
+        match self {
+            Quality::Low => low,
+            Quality::Medium => medium,
+            Quality::High => high,
+            Quality::Best => best,
+        }
+    }
+}
 
 const OPUS_RATE: u32 = 48_000;
 const VORBIS_BLOCK: usize = 1024;
@@ -23,19 +51,25 @@ const VORBIS_BLOCK: usize = 1024;
 pub enum Target {
     Mp4,
     WebM,
+    Avi,
 }
 
 fn fits(codec: &Codec, target: Target) -> bool {
     match target {
         Target::Mp4 => matches!(codec, Codec::H264 { .. } | Codec::Aac { .. } | Codec::Mp3),
         Target::WebM => matches!(codec, Codec::Vp8 | Codec::Vp9 | Codec::Av1 { .. } | Codec::Opus { .. } | Codec::Vorbis { .. }),
+        Target::Avi => matches!(
+            codec,
+            Codec::H264 { .. } | Codec::Mpeg4 { .. } | Codec::Mjpeg | Codec::Mp3 | Codec::Mp2 | Codec::Pcm { .. }
+        ),
     }
 }
 
 pub fn prepare<'a>(
     tracks: Vec<Track<'a>>,
     target: Target,
-    aac_encoder: AacEncoder,
+    audio_encoder: AudioEncoder,
+    quality: Quality,
     report: &dyn Fn(u8),
 ) -> Result<Vec<Track<'a>>, String> {
     let video_work: usize = tracks.iter().filter(|t| t.video && !fits(&t.codec, target)).map(|t| t.samples.len()).sum();
@@ -54,9 +88,9 @@ pub fn prepare<'a>(
                 }
             };
             done += t.samples.len();
-            out.push(transcode_video(&t, target, &progress)?);
+            out.push(transcode_video(&t, target, quality, &progress)?);
         } else {
-            out.push(transcode_audio(&t, target, aac_encoder)?);
+            out.push(transcode_audio(&t, target, audio_encoder, quality)?);
         }
     }
     Ok(out)
@@ -166,6 +200,57 @@ fn split_annexb(data: &[u8]) -> Vec<&[u8]> {
 enum VideoDecoder {
     H264 { decoder: H264Decoder, length_size: usize, header: Vec<u8> },
     Vpx(vpx::VpxDecoder),
+    Mpeg4(Box<crate::mpeg4::Mpeg4Decoder>),
+    Mjpeg,
+}
+
+const MJPEG_DEFAULT_HUFFMAN: [u8; 420] = [
+    0xFF, 0xC4, 0x01, 0xA2, 0x00, 0x00, 0x01, 0x05, 0x01, 0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00,
+    0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09, 0x0A, 0x0B, 0x01, 0x00, 0x03, 0x01, 0x01, 0x01, 0x01,
+    0x01, 0x01, 0x01, 0x01, 0x01, 0x00, 0x00, 0x00, 0x00, 0x00, 0x00, 0x01, 0x02, 0x03, 0x04, 0x05, 0x06, 0x07, 0x08, 0x09,
+    0x0A, 0x0B, 0x10, 0x00, 0x02, 0x01, 0x03, 0x03, 0x02, 0x04, 0x03, 0x05, 0x05, 0x04, 0x04, 0x00, 0x00, 0x01, 0x7D, 0x01,
+    0x02, 0x03, 0x00, 0x04, 0x11, 0x05, 0x12, 0x21, 0x31, 0x41, 0x06, 0x13, 0x51, 0x61, 0x07, 0x22, 0x71, 0x14, 0x32, 0x81,
+    0x91, 0xA1, 0x08, 0x23, 0x42, 0xB1, 0xC1, 0x15, 0x52, 0xD1, 0xF0, 0x24, 0x33, 0x62, 0x72, 0x82, 0x09, 0x0A, 0x16, 0x17,
+    0x18, 0x19, 0x1A, 0x25, 0x26, 0x27, 0x28, 0x29, 0x2A, 0x34, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3A, 0x43, 0x44, 0x45, 0x46,
+    0x47, 0x48, 0x49, 0x4A, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5A, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6A,
+    0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8A, 0x92, 0x93, 0x94, 0x95,
+    0x96, 0x97, 0x98, 0x99, 0x9A, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6, 0xB7,
+    0xB8, 0xB9, 0xBA, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8, 0xC9, 0xCA, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8, 0xD9,
+    0xDA, 0xE1, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7, 0xE8, 0xE9, 0xEA, 0xF1, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8, 0xF9,
+    0xFA, 0x11, 0x00, 0x02, 0x01, 0x02, 0x04, 0x04, 0x03, 0x04, 0x07, 0x05, 0x04, 0x04, 0x00, 0x01, 0x02, 0x77, 0x00, 0x01,
+    0x02, 0x03, 0x11, 0x04, 0x05, 0x21, 0x31, 0x06, 0x12, 0x41, 0x51, 0x07, 0x61, 0x71, 0x13, 0x22, 0x32, 0x81, 0x08, 0x14,
+    0x42, 0x91, 0xA1, 0xB1, 0xC1, 0x09, 0x23, 0x33, 0x52, 0xF0, 0x15, 0x62, 0x72, 0xD1, 0x0A, 0x16, 0x24, 0x34, 0xE1, 0x25,
+    0xF1, 0x17, 0x18, 0x19, 0x1A, 0x26, 0x27, 0x28, 0x29, 0x2A, 0x35, 0x36, 0x37, 0x38, 0x39, 0x3A, 0x43, 0x44, 0x45, 0x46,
+    0x47, 0x48, 0x49, 0x4A, 0x53, 0x54, 0x55, 0x56, 0x57, 0x58, 0x59, 0x5A, 0x63, 0x64, 0x65, 0x66, 0x67, 0x68, 0x69, 0x6A,
+    0x73, 0x74, 0x75, 0x76, 0x77, 0x78, 0x79, 0x7A, 0x82, 0x83, 0x84, 0x85, 0x86, 0x87, 0x88, 0x89, 0x8A, 0x92, 0x93, 0x94,
+    0x95, 0x96, 0x97, 0x98, 0x99, 0x9A, 0xA2, 0xA3, 0xA4, 0xA5, 0xA6, 0xA7, 0xA8, 0xA9, 0xAA, 0xB2, 0xB3, 0xB4, 0xB5, 0xB6,
+    0xB7, 0xB8, 0xB9, 0xBA, 0xC2, 0xC3, 0xC4, 0xC5, 0xC6, 0xC7, 0xC8, 0xC9, 0xCA, 0xD2, 0xD3, 0xD4, 0xD5, 0xD6, 0xD7, 0xD8,
+    0xD9, 0xDA, 0xE2, 0xE3, 0xE4, 0xE5, 0xE6, 0xE7, 0xE8, 0xE9, 0xEA, 0xF2, 0xF3, 0xF4, 0xF5, 0xF6, 0xF7, 0xF8, 0xF9, 0xFA,
+];
+
+fn mjpeg_with_tables(frame: &[u8]) -> Cow<'_, [u8]> {
+    let mut p = 2usize;
+    while p + 4 <= frame.len() && frame[p] == 0xFF {
+        let marker = frame[p + 1];
+        if marker == 0xC4 {
+            return Cow::Borrowed(frame);
+        }
+        if marker == 0xDA {
+            let mut out = Vec::with_capacity(frame.len() + MJPEG_DEFAULT_HUFFMAN.len());
+            out.extend_from_slice(&frame[..p]);
+            out.extend_from_slice(&MJPEG_DEFAULT_HUFFMAN);
+            out.extend_from_slice(&frame[p..]);
+            return Cow::Owned(out);
+        }
+        p += 2 + u16::from_be_bytes([frame[p + 2], frame[p + 3]]) as usize;
+    }
+    Cow::Borrowed(frame)
+}
+
+fn picture_from_jpeg(data: &[u8]) -> Result<Picture, String> {
+    let image = image::load_from_memory_with_format(&mjpeg_with_tables(data), image::ImageFormat::Jpeg)
+        .map_err(|e| format!("Motion JPEG decode error: {e}"))?;
+    Ok(crate::animation::rgba_to_picture(&image.to_rgba8()))
 }
 
 impl VideoDecoder {
@@ -180,6 +265,8 @@ impl VideoDecoder {
             }
             Codec::Vp8 => Ok(VideoDecoder::Vpx(vpx::VpxDecoder::new(true, thread_count())?)),
             Codec::Vp9 => Ok(VideoDecoder::Vpx(vpx::VpxDecoder::new(false, thread_count())?)),
+            Codec::Mpeg4 { config } => Ok(VideoDecoder::Mpeg4(Box::new(crate::mpeg4::Mpeg4Decoder::new(config)?))),
+            Codec::Mjpeg => Ok(VideoDecoder::Mjpeg),
             other => Err(format!("{} video can't be decoded yet, so this file can't be converted.", other.name())),
         }
     }
@@ -199,15 +286,29 @@ impl VideoDecoder {
             VideoDecoder::Vpx(decoder) => {
                 out.extend(decoder.decode_packet(&sample.data)?.into_iter().map(picture_from_vpx));
             }
+            VideoDecoder::Mpeg4(decoder) => {
+                let mut images = Vec::new();
+                decoder.decode(&sample.data, &mut images)?;
+                out.extend(images.into_iter().map(|i| Picture { width: i.width, height: i.height, i420: i.i420 }));
+            }
+            VideoDecoder::Mjpeg => out.push(picture_from_jpeg(&sample.data)?),
         }
         Ok(())
     }
 
     fn finish(&mut self, out: &mut Vec<Picture>) -> Result<(), String> {
-        if let VideoDecoder::H264 { decoder, .. } = self {
-            for yuv in decoder.flush_remaining().map_err(|e| format!("H.264 decode error: {e}"))? {
-                out.push(picture_from_openh264(&yuv));
+        match self {
+            VideoDecoder::H264 { decoder, .. } => {
+                for yuv in decoder.flush_remaining().map_err(|e| format!("H.264 decode error: {e}"))? {
+                    out.push(picture_from_openh264(&yuv));
+                }
             }
+            VideoDecoder::Mpeg4(decoder) => {
+                let mut images = Vec::new();
+                decoder.finish(&mut images);
+                out.extend(images.into_iter().map(|i| Picture { width: i.width, height: i.height, i420: i.i420 }));
+            }
+            _ => {}
         }
         Ok(())
     }
@@ -231,7 +332,7 @@ impl VideoEncoder {
                 let kbps = (bitrate_bps / 1000).clamp(200, 20_000) as u32;
                 Ok(VideoEncoder::Vp9(vpx::Vp9Encoder::new(width as u32, height as u32, kbps, thread_count())?))
             }
-            Target::Mp4 => {
+            Target::Mp4 | Target::Avi => {
                 let config = EncoderConfig::new()
                     .bitrate(BitRate::from_bps(bitrate_bps.clamp(300_000, 40_000_000) as u32))
                     .max_frame_rate(FrameRate::from_hz(fps))
@@ -365,6 +466,7 @@ pub fn for_each_frame(
     };
 
     for (i, sample) in t.samples.iter().enumerate() {
+        crate::check_cancelled()?;
         decoder.decode(sample, i == 0, &mut pictures)?;
         deliver(&mut pictures, &mut shown)?;
         if i % 8 == 0 {
@@ -404,13 +506,19 @@ pub fn encoded_video_track(
     })
 }
 
-fn transcode_video(t: &Track, target: Target, progress: &dyn Fn(usize)) -> Result<Track<'static>, String> {
+fn transcode_video(t: &Track, target: Target, quality: Quality, progress: &dyn Fn(usize)) -> Result<Track<'static>, String> {
     let (timing, _) = video_timing(t);
     let fps = (1000.0 / timing.frame_ms) as f32;
-    let bitrate = match target {
-        Target::WebM => t.bitrate_bps() * 4 / 5,
-        Target::Mp4 => t.bitrate_bps() * 3 / 2,
+    let source_bps = if t.codec == Codec::Mjpeg {
+        (t.width as f64 * t.height as f64 * fps as f64 * 0.15) as u64
+    } else {
+        t.bitrate_bps()
     };
+    let bitrate = match target {
+        Target::WebM => source_bps * 4 / 5,
+        Target::Mp4 | Target::Avi => source_bps * 3 / 2,
+    };
+    let bitrate = (bitrate as f64 * quality.pick(0.5, 0.75, 1.0, 1.6)) as u64;
     let mut encoder: Option<VideoEncoder> = None;
     let mut size = (0usize, 0usize);
     let mut packets: Vec<EncodedPacket> = Vec::new();
@@ -454,47 +562,45 @@ fn vorbis_extra_data(private: &[u8]) -> Result<Vec<u8>, String> {
     Ok([*ident, *setup].concat())
 }
 
-pub fn opus_packet_samples(packet: &[u8]) -> usize {
-    let Some(&toc) = packet.first() else { return 0 };
-    let config = toc >> 3;
-    let per_frame_48k = match config {
-        0..=11 => [480, 960, 1920, 2880][(config % 4) as usize],
-        12..=15 => [480, 960][(config % 2) as usize],
-        _ => [120, 240, 480, 960][(config % 4) as usize],
-    };
-    let frames = match toc & 0x03 {
-        0 => 1,
-        1 | 2 => 2,
-        _ => packet.get(1).map(|b| (b & 0x3F) as usize).unwrap_or(1),
-    };
-    (per_frame_48k * frames).min(5760)
-}
-
-fn decode_audio(t: &Track) -> Result<(Vec<f32>, u32, u16), String> {
+pub fn decode_audio(t: &Track) -> Result<(Vec<f32>, u32, u16), String> {
     if let Codec::Opus { head } = &t.codec {
-        let channels = *head.get(9).unwrap_or(&2) as usize;
-        if channels == 0 || channels > 2 {
-            return Err("Only mono or stereo Opus audio can be converted.".to_string());
-        }
-        let mut decoder = opus_rs::OpusDecoder::new(OPUS_RATE as i32, channels)
-            .map_err(|e| format!("Couldn't create the Opus decoder: {e}"))?;
-        let mut buf = vec![0.0f32; 5760 * channels];
+        let mut decoder = if head.starts_with(b"OpusHead") {
+            crate::opus_decode::OpusStreamDecoder::from_head(head)?
+        } else {
+            crate::opus_decode::OpusStreamDecoder::from_channels(t.channels)?
+        };
         let mut pcm = Vec::new();
         for s in &t.samples {
-            if s.data.is_empty() {
-                continue;
-            }
-            let got = decoder
-                .decode(&s.data, opus_packet_samples(&s.data), &mut buf)
-                .map_err(|e| format!("Opus decode error: {e}"))?;
-            pcm.extend_from_slice(&buf[..got * channels]);
+            decoder.decode(&s.data, &mut pcm)?;
         }
-        return Ok((pcm, OPUS_RATE, channels as u16));
+        return Ok((pcm, OPUS_RATE, decoder.output_channels()));
+    }
+    if let Codec::Pcm { bits, float } = t.codec {
+        let width = (bits as usize).div_ceil(8);
+        let mut pcm = Vec::with_capacity(t.samples.iter().map(|s| s.data.len()).sum::<usize>() / width.max(1));
+        for s in &t.samples {
+            for b in s.data.chunks_exact(width) {
+                pcm.push(match (width, float) {
+                    (1, _) => (b[0] as f32 - 128.0) / 128.0,
+                    (2, _) => i16::from_le_bytes([b[0], b[1]]) as f32 / 32768.0,
+                    (3, _) => (i32::from_le_bytes([0, b[0], b[1], b[2]]) >> 8) as f32 / 8_388_608.0,
+                    (4, true) => f32::from_le_bytes([b[0], b[1], b[2], b[3]]),
+                    (4, false) => i32::from_le_bytes([b[0], b[1], b[2], b[3]]) as f32 / 2_147_483_648.0,
+                    (8, true) => f64::from_le_bytes(b.try_into().unwrap()) as f32,
+                    _ => return Err(format!("{bits}-bit PCM audio can't be decoded.")),
+                });
+            }
+        }
+        if pcm.is_empty() {
+            return Err("No audio could be decoded from this file.".to_string());
+        }
+        return Ok((pcm, t.sample_rate.max(1), t.channels.max(1)));
     }
 
     let (codec_type, extra) = match &t.codec {
         Codec::Aac { asc } => (CODEC_TYPE_AAC, asc.clone()),
         Codec::Mp3 => (CODEC_TYPE_MP3, Vec::new()),
+        Codec::Mp2 => (CODEC_TYPE_MP2, Vec::new()),
         Codec::Vorbis { headers } => (CODEC_TYPE_VORBIS, vorbis_extra_data(headers)?),
         other => return Err(format!("{} audio can't be decoded yet, so this file can't be converted.", other.name())),
     };
@@ -537,7 +643,7 @@ fn decode_audio(t: &Track) -> Result<(Vec<f32>, u32, u16), String> {
     Ok((pcm, rate, channels))
 }
 
-fn to_stereo_or_mono(pcm: Vec<f32>, channels: u16) -> (Vec<f32>, u16) {
+pub fn to_stereo_or_mono(pcm: Vec<f32>, channels: u16) -> (Vec<f32>, u16) {
     let c = channels as usize;
     if c <= 2 {
         return (pcm, channels.max(1));
@@ -558,7 +664,7 @@ fn to_stereo_or_mono(pcm: Vec<f32>, channels: u16) -> (Vec<f32>, u16) {
     (out, 2)
 }
 
-fn transcode_audio(t: &Track, target: Target, aac_encoder: AacEncoder) -> Result<Track<'static>, String> {
+pub fn audio_for_encoding(t: &Track) -> Result<(Vec<f32>, u32, u16, i64), String> {
     let (pcm, rate, channels) = decode_audio(t)?;
     let delay_ns = match &t.codec {
         Codec::Opus { head } if t.codec_delay_ns <= 0 && head.len() >= 12 => {
@@ -569,11 +675,55 @@ fn transcode_audio(t: &Track, target: Target, aac_encoder: AacEncoder) -> Result
     let skip = ((delay_ns as i128 * rate as i128 / 1_000_000_000) as usize * channels.max(1) as usize).min(pcm.len());
     let (pcm, channels) = to_stereo_or_mono(pcm[skip..].to_vec(), channels);
     let start_ns = t.samples.iter().map(|s| s.pts_ns).min().unwrap_or(0);
+    Ok((pcm, rate, channels, start_ns))
+}
 
+fn transcode_audio(t: &Track, target: Target, audio_encoder: AudioEncoder, quality: Quality) -> Result<Track<'static>, String> {
+    let (pcm, rate, channels, start_ns) = audio_for_encoding(t)?;
+    encode_audio_track(&pcm, rate, channels, start_ns, target, audio_encoder, quality)
+}
+
+const MP3_ENCODER_DELAY: i64 = 1105;
+
+pub fn encode_audio_track(
+    pcm: &[f32],
+    rate: u32,
+    channels: u16,
+    start_ns: i64,
+    target: Target,
+    audio_encoder: AudioEncoder,
+    quality: Quality,
+) -> Result<Track<'static>, String> {
     match target {
-        Target::WebM => encode_vorbis_track(&pcm, rate, channels, start_ns),
+        Target::WebM => encode_vorbis_track(pcm, rate, channels, start_ns, quality),
+        Target::Avi => {
+            let bytes = audio_encoder(pcm, rate, channels)?;
+            let mut frames = crate::avi::split_mpa(&bytes);
+            if frames.first().is_some_and(|&(a, b)| bytes[a..b.min(a + 64)].windows(4).any(|w| w == b"Xing" || w == b"Info")) {
+                frames.remove(0);
+            }
+            let first = frames
+                .first()
+                .and_then(|&(a, _)| crate::avi::mpa_frame(&bytes[a..]))
+                .ok_or_else(|| "The MP3 encoder didn't produce any audio.".to_string())?;
+            let frame_ns = first.samples as i64 * 1_000_000_000 / first.rate as i64;
+            Ok(Track {
+                video: false,
+                codec: Codec::Mp3,
+                width: 0,
+                height: 0,
+                sample_rate: first.rate,
+                channels: first.channels,
+                codec_delay_ns: MP3_ENCODER_DELAY * 1_000_000_000 / first.rate as i64,
+                samples: frames
+                    .iter()
+                    .enumerate()
+                    .map(|(k, &(a, b))| Sample { pts_ns: start_ns + k as i64 * frame_ns, keyframe: true, data: Cow::Owned(bytes[a..b].to_vec()) })
+                    .collect(),
+            })
+        }
         Target::Mp4 => {
-            let bytes = aac_encoder(&pcm, rate, channels)?;
+            let bytes = audio_encoder(pcm, rate, channels)?;
             let encoded = demux::read_mp4(&bytes)?;
             let track = encoded
                 .into_iter()
@@ -641,7 +791,7 @@ fn vorbis_mode_blockflags(setup: &[u8]) -> Option<Vec<bool>> {
     Some(flags)
 }
 
-fn encode_vorbis_track(pcm: &[f32], rate: u32, channels: u16, start_ns: i64) -> Result<Track<'static>, String> {
+fn encode_vorbis_track(pcm: &[f32], rate: u32, channels: u16, start_ns: i64, quality: Quality) -> Result<Track<'static>, String> {
     use std::num::{NonZeroU32, NonZeroU8};
 
     let c = channels as usize;
@@ -651,6 +801,9 @@ fn encode_vorbis_track(pcm: &[f32], rate: u32, channels: u16, start_ns: i64) -> 
         let ch = NonZeroU8::new(c as u8).ok_or_else(|| "Invalid channel count.".to_string())?;
         let mut builder = vorbis_rs::VorbisEncoderBuilder::new(sr, ch, &mut ogg_bytes)
             .map_err(|e| format!("Vorbis setup error: {e}"))?;
+        builder.bitrate_management_strategy(vorbis_rs::VorbisBitrateManagementStrategy::QualityVbr {
+            target_quality: quality.pick(0.2, 0.35, 0.5, 0.8),
+        });
         let mut encoder = builder.build().map_err(|e| format!("Vorbis build error: {e}"))?;
         let planar: Vec<Vec<f32>> = (0..c).map(|ch| pcm.iter().skip(ch).step_by(c).copied().collect()).collect();
         let total = planar[0].len();

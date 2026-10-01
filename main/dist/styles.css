@@ -174,18 +174,21 @@ button {
 .autoclicker::-webkit-scrollbar,
 .qrcode::-webkit-scrollbar,
 .settings::-webkit-scrollbar,
+.batch-list::-webkit-scrollbar,
 .dropdown-popup-scroll::-webkit-scrollbar {
     width: 6px;
 }
 .autoclicker::-webkit-scrollbar-track,
 .qrcode::-webkit-scrollbar-track,
 .settings::-webkit-scrollbar-track,
+.batch-list::-webkit-scrollbar-track,
 .dropdown-popup-scroll::-webkit-scrollbar-track {
     background: transparent;
 }
 .autoclicker::-webkit-scrollbar-thumb,
 .qrcode::-webkit-scrollbar-thumb,
 .settings::-webkit-scrollbar-thumb,
+.batch-list::-webkit-scrollbar-thumb,
 .dropdown-popup-scroll::-webkit-scrollbar-thumb {
     background-color: var(--t-scrollbarThumb);
     border-radius: 3px;
@@ -193,12 +196,14 @@ button {
 .autoclicker::-webkit-scrollbar-thumb:hover,
 .qrcode::-webkit-scrollbar-thumb:hover,
 .settings::-webkit-scrollbar-thumb:hover,
+.batch-list::-webkit-scrollbar-thumb:hover,
 .dropdown-popup-scroll::-webkit-scrollbar-thumb:hover {
     background-color: var(--t-scrollbarThumbHover);
 }
 .autoclicker::-webkit-scrollbar-button,
 .qrcode::-webkit-scrollbar-button,
 .settings::-webkit-scrollbar-button,
+.batch-list::-webkit-scrollbar-button,
 .dropdown-popup-scroll::-webkit-scrollbar-button {
     display: none;
     width: 0;
@@ -580,7 +585,7 @@ body.skip-tab-anim #t-settings.sidebar-button.active i {
 
 .app-dialog-overlay {
     position: fixed;
-    inset: var(--titlebarHeight) 0 0 0;
+    inset: 0;
     display: flex;
     justify-content: center;
     align-items: center;
@@ -611,7 +616,7 @@ body.skip-tab-anim #t-settings.sidebar-button.active i {
     transform: scale(1);
 }
 .app-dialog-content {
-    padding: 18px 24px 20px;
+    padding: 12px 18px 14px;
 }
 .app-dialog-title {
     color: var(--t-contrastColor);
@@ -635,15 +640,14 @@ body.skip-tab-anim #t-settings.sidebar-button.active i {
 .app-dialog-footer {
     display: flex;
     gap: 8px;
-    padding: 20px 24px;
+    padding: 18px 20px;
     background-color: var(--t-dialogFooterBg);
     border-top: solid 1px var(--t-dialogBorder);
 }
 .app-dialog-button {
     flex: 1 1 0;
-    height: 32px;
+    height: 31px;
     min-width: 0;
-    padding: 0 8px 2px;
     border-radius: 5px;
     border: var(--t-boxBorder);
     background-color: var(--t-buttonBg);
@@ -768,6 +772,7 @@ select.dropdown {
 }
 .dropdown-popup-scroll.is-scrollable {
     padding-right: 4px;
+    scrollbar-gutter: stable;
 }
 .dropdown-option {
     position: relative;
@@ -814,8 +819,19 @@ select.dropdown {
     cursor: not-allowed;
     opacity: .45;
 }
+.dropdown-option.dropdown-header {
+    height: 24px;
+    padding-left: 10px;
+    font-size: 12px;
+    color: var(--t-mainColor);
+    opacity: .7;
+    cursor: default;
+}
+.dropdown-option.dropdown-header:hover {
+    background-color: transparent;
+}
 #mediafileconverter .dropdown-toggle {
-    left: 397px;
+    left: 389px;
 }
 .dropdown-optgroup {
     margin-bottom: 4px;
@@ -872,7 +888,7 @@ input.input-box:active, input.input-box:focus,
 }
 #mediafileconverter .input-box {
     left: 15px;
-    right: 97px;
+    right: 105px;
 }
 [toupload] input.input-box {
     right: 15px !important;
@@ -915,7 +931,7 @@ input.input-box:not(:placeholder-shown) {
     right: 20px;
 }
 #mediafileconverter .input-clear {
-    right: 102px;
+    right: 110px;
 }
 
 /*——/ Output-Box /———————————————————————————————————————————*/
@@ -947,58 +963,57 @@ input.input-box:not(:placeholder-shown) {
 /*——/ File Upload Zone /—————————————————————————————————————*/
 
 .file-upload-zone {
+    display: none;
     position: absolute;
     top: 52px;
     bottom: 15px;
     left: 15px;
-    right: 327px;
-    background-color: var(--t-boxBg);
-    border-radius: 5px;
-    cursor: default;
-    pointer-events: none;
+    right: 15px;
+    border-radius: 7px;
+    cursor: pointer;
     overflow: hidden;
-    border: var(--t-boxBorder);
+    background-color: var(--t-boxBg);
+    transition: background-color .15s ease;
 }
 [toupload] .file-upload-zone {
-    pointer-events: all;
-    cursor: pointer;
-    border: none;
+    display: block;
 }
-[toupload] .file-upload-border {
-    --value1: 90px;
-    --value2: 145px;
-    height: 100%;
-    width: 100%;
+.file-upload-zone:hover {
+    background-color: var(--t-inputActive);
+}
+.file-upload-border {
     position: absolute;
-    left: 0;
-    top: 0;
+    inset: 0;
     border-radius: 7px;
     background: linear-gradient(90deg, var(--t-mainColor) 50%, var(--t-dashGap) 50%), linear-gradient(90deg, var(--t-mainColor) 50%, var(--t-dashGap) 50%), linear-gradient(0deg, var(--t-mainColor) 50%, var(--t-dashGap) 50%), linear-gradient(0deg, var(--t-mainColor) 50%, var(--t-dashGap) 50%);
     background-repeat: repeat-x, repeat-x, repeat-y, repeat-y;
     background-size: 15px 2px, 15px 2px, 2px 15px, 2px 15px;
-    background-position: 0px 0px, var(--value2) var(--value2), 0px var(--value2), var(--value2) 0px;
-    animation: border-rotate 3s infinite linear;
+    background-position: 0 0, 0 100%, 0 0, 100% 0;
+    animation: border-march 3s infinite linear;
 }
-@keyframes border-rotate {
-    0% { background-position: 0px 0px, var(--value1) var(--value2), 0px var(--value1), var(--value2) 0px; }
-    100% { background-position: var(--value1) 0px, 0px var(--value2), 0px 0px, var(--value2) var(--value1) }
+@keyframes border-march {
+    to { background-position: 90px 0, -90px 100%, 0 -90px, 100% 90px; }
 }
-.file-upload-zone::after {
+.upload-svg {
     position: absolute;
-    top: 61.4%;
-    width: 93%;
     left: 50%;
-    transform: translateX(-50%);
-    content: attr(data-filename);
+    top: calc(50% - 12px);
+    width: 30px;
+    height: 30px;
+    transform: translate(-50%, -50%);
     color: var(--t-mainColor);
-    font-size: 12px;
-    text-overflow: ellipsis;
+}
+.file-upload-hint {
+    position: absolute;
+    left: 0;
+    right: 0;
+    top: calc(50% + 12px);
     text-align: center;
-    display: -webkit-box;
-    -webkit-box-orient: vertical;
-    -webkit-line-clamp: 3;
-    line-clamp: 3;
-    overflow: hidden;
+    font-size: 12.5px;
+    color: var(--t-mainColor);
+}
+.file-upload {
+    display: none;
 }
 [toupload] .file-upload {
     position: absolute !important;
@@ -1012,42 +1027,66 @@ input.input-box:not(:placeholder-shown) {
     border: 0 !important;
     display: block !important;
 }
-.image-svg,
-.video-svg,
-.audio-svg,
-[toupload] .file-upload-zone::after,
-.file-upload,
-.upload-svg,
-[toupload] .unattach-file {
+
+/*——/ File Strip /———————————————————————————————————————————*/
+
+[toupload] .file-strip,
+[toupload] .file-toolbar,
+[toupload] .file-summary,
+[toupload] #proceed {
     display: none;
 }
-.file-upload-zone svg {
+.file-strip {
     position: absolute;
+    top: 52px;
+    left: 15px;
+    right: 15px;
+    height: 50px;
+    box-sizing: border-box;
+    background-color: var(--t-boxBg);
+    border: var(--t-boxBorder);
+    border-radius: 5px;
+}
+.file-strip-icon svg {
+    display: none;
+    position: absolute;
+    left: 12px;
+    top: 11px;
+    width: 26px;
+    height: 26px;
+}
+.file-strip-icon svg[enabled] {
+    display: block;
+}
+.file-strip-name,
+.file-strip-meta {
+    position: absolute;
+    left: 50px;
+    right: 46px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.file-strip-name {
+    top: 6px;
+    font-size: 13px;
+    color: var(--t-contrastColor);
+}
+.file-strip-meta {
+    top: 25px;
+    font-size: 11px;
     color: var(--t-mainColor);
-    transform: scale(.34);
-}
-[toupload] .upload-svg {
-    display: block;
-}
-.image-svg[enabled],
-.video-svg[enabled],
-.audio-svg[enabled] {
-    transform: scale(.34) translateY(-20px);
-    display: block;
+    opacity: .75;
 }
 .unattach-file {
     position: absolute;
-    top: 56px;
-    right: 331px;
-    height: 20px;
-    width: 20px;
-    background: none;
-    border: none;
-    padding: 0;
-    margin: 0;
+    top: 50%;
+    right: 10px;
+    height: 26px;
+    width: 26px;
+    transform: translateY(-50%);
     border-radius: 20%;
     transition: 0.1s ease-out;
-    pointer-events: auto;
     cursor: pointer;
 }
 .unattach-file:hover {
@@ -1055,69 +1094,370 @@ input.input-box:not(:placeholder-shown) {
 }
 .unattach-file svg {
     position: absolute;
-    width: 16px;
-    height: 16px;
+    width: 17px;
+    height: 17px;
     top: 50%;
     left: 50%;
-    transform: translateX(-50%) translateY(-50%);
+    transform: translate(-50%, -50%);
     color: var(--t-contrastColor);
 }
+#mediafileconverter .input-box:disabled {
+    cursor: default;
+    opacity: .6;
+}
 
-/*——/ File Edit Box /————————————————————————————————————————*/
+/*——/ File Toolbar /—————————————————————————————————————————*/
 
-.file-options {
+.file-toolbar {
     position: absolute;
-    top: 52px;
     bottom: 15px;
-    right: 15px;
-    left: 167px;
-    background-color: var(--t-boxBg);
+    left: 15px;
+    right: 113px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+}
+.quality-wrap {
+    position: relative;
+    flex: none;
+    width: 112px;
+    height: 30px;
+}
+.quality-wrap.hidden {
+    display: none;
+}
+#mediafileconverter .quality-wrap .dropdown-toggle {
+    top: 0;
+    bottom: 0;
+    left: 0;
+    right: 0;
+    padding: 2px 24px 4px 10px;
+    font-size: 12.5px;
+}
+.output-folder {
+    position: relative;
+    flex: none;
+    height: 30px;
+    max-width: 118px;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 10px 0 9px;
+    font-size: 12.5px;
+    font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+    color: var(--t-contrastColor);
+    background-color: var(--t-buttonBg);
+    border: var(--t-boxBorder);
     border-radius: 5px;
-    padding: 5px;
+    cursor: pointer;
+    transition: 0.3s ease;
+}
+.output-folder:hover {
+    background-color: var(--t-buttonHover);
+}
+.output-folder i {
+    flex: none;
+    font-size: 15px;
+}
+.output-folder-label {
+    overflow: hidden;
+    text-overflow: ellipsis;
+    white-space: nowrap;
+    padding-bottom: 2px;
+}
+.output-folder-clear {
+    display: none;
+    flex: none;
+    align-items: center;
+    justify-content: center;
+    width: 16px;
+    height: 16px;
+    margin-right: -3px;
+    border-radius: 20%;
+    color: var(--t-placeholderColor);
+}
+.output-folder-clear svg {
+    width: 13px;
+    height: 13px;
+}
+.output-folder-clear:hover {
+    background-color: var(--t-clearButtonHover);
+}
+.output-folder.custom .output-folder-clear {
+    display: flex;
+}
+.file-toolbar-separator {
+    flex: none;
+    width: 1px;
+    height: 16px;
+    margin: 0 3px;
+    background-color: var(--t-settingsButtonToggleBorder);
+}
+.option-toggle {
+    position: relative;
+    flex: none;
+    width: 30px;
+    height: 30px;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    border-radius: 5px;
+    border: var(--t-boxBorder);
+    background-color: var(--t-buttonBg);
+    color: var(--t-contrastColor);
+    cursor: pointer;
+    transition: background-color .15s ease, color .15s ease, border-color .15s ease;
+}
+.option-toggle:hover {
+    background-color: var(--t-buttonHover);
+}
+.option-toggle.disabled {
+    opacity: .45;
+}
+.option-toggle.disabled,
+.option-toggle.disabled input {
+    cursor: default;
+}
+.option-toggle.disabled:hover {
+    background-color: var(--t-buttonBg);
+}
+.option-toggle i {
+    font-size: 15px;
+    pointer-events: none;
+}
+.option-toggle input {
+    position: absolute;
+    inset: 0;
+    width: 100%;
+    height: 100%;
+    margin: 0;
+    opacity: 0;
+    border-radius: 5px;
+    appearance: none;
+    cursor: pointer;
+}
+.option-toggle:has(input:checked:not(:disabled)) {
+    background-color: var(--t-buttonFeaturedBg);
+    color: var(--t-buttonFeaturedColor);
+}
+.option-toggle:has(input:checked:not(:disabled)):hover {
+    background-color: var(--t-buttonFeaturedHover);
+}
+
+/*——/ Batch List /—————————————————————————————————————————*/
+
+.batch-header,
+.batch-list,
+.batch-set-all-select {
+    display: none;
+}
+#mediafileconverter[batch] .input-box,
+#mediafileconverter[batch] .input-clear,
+#mediafileconverter[batch] .input-fix,
+#mediafileconverter[batch] #o-format + .dropdown-toggle,
+#mediafileconverter[batch] .file-strip,
+#mediafileconverter[batch] .file-summary {
+    display: none !important;
+}
+#mediafileconverter[batch] .batch-header {
+    position: absolute;
+    top: 15px;
+    left: 16px;
+    right: 15px;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+}
+.batch-count {
+    font-size: 14px;
+    color: var(--t-contrastColor);
+}
+.batch-size {
+    flex: 1;
+    min-width: 0;
+    font-size: 12px;
+    color: var(--t-mainColor);
+    opacity: .7;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.batch-header-button {
+    flex: none;
+    height: 28px;
+    box-sizing: border-box;
+    display: flex;
+    align-items: center;
+    gap: 6px;
+    padding: 0 10px 1px;
+    font-size: 12.5px;
+    font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+    color: var(--t-contrastColor);
+    background-color: var(--t-buttonBg);
+    border: var(--t-boxBorder);
+    border-radius: 5px;
+    cursor: pointer;
+    transition: background-color .15s ease;
+}
+.batch-header-button:hover {
+    background-color: var(--t-buttonHover);
+}
+.batch-header-button i {
+    font-size: 14px;
+}
+.batch-header-button.icon-only {
+    width: 28px;
+    padding: 0;
+    justify-content: center;
+}
+#mediafileconverter[batch] .batch-list {
+    display: block;
+    position: absolute;
+    top: 50px;
+    left: 15px;
+    right: 15px;
+    height: 111px;
+    box-sizing: border-box;
+    padding: 4px;
+    overflow-y: auto;
+    background-color: var(--t-boxBg);
+    border: var(--t-boxBorder);
+    border-radius: 5px;
+}
+.batch-row {
+    position: relative;
+    height: 30px;
+    display: flex;
+    align-items: center;
+    gap: 9px;
+    padding: 0 4px 0 8px;
+    font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+}
+.batch-row + .batch-row::before {
+    content: "";
+    position: absolute;
+    top: 0;
+    left: 6px;
+    right: 6px;
+    height: 1px;
+    background-color: var(--t-settingsButtonToggleBorder);
+}
+.batch-row-icon svg {
+    display: block;
+    width: 17px;
+    height: 17px;
+    color: var(--t-mainColor);
+}
+.batch-row-name {
+    flex: 1;
+    min-width: 0;
+    font-size: 12.5px;
+    color: var(--t-contrastColor);
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+.batch-row-meta {
+    color: var(--t-mainColor);
+    opacity: .7;
+}
+.batch-row-name[hidden] {
+    display: none;
+}
+.batch-row-label {
+    margin-left: -5px;
+    padding: 2px 5px 3px;
+    border-radius: 4px;
+    cursor: pointer;
+}
+.batch-row-rename {
+    flex: 1;
+    min-width: 0;
+    height: 22px;
+    box-sizing: border-box;
+    margin: 0 0 0 -5px;
+    padding: 0 4px 2px;
+    font: inherit;
+    font-size: 12.5px;
+    font-family: "Segoe UI Variable Text", "Segoe UI", sans-serif;
+    color: var(--t-contrastColor);
+    background-color: var(--t-inputActive);
+    border: var(--t-boxBorder);
+    border-radius: 4px;
+    box-shadow: inset 0 -2px var(--t-inputFocusShadow);
+    outline: none;
+    transition: background-color .12s ease, box-shadow .12s ease;
+}
+@starting-style {
+    .batch-row-rename {
+        background-color: transparent;
+        box-shadow: inset 0 0 var(--t-inputFocusShadow);
+    }
+}
+#mediafileconverter .batch-row .dropdown-toggle {
+    position: relative;
+    inset: auto;
+    flex: none;
+    width: 80px;
+    height: 23px;
+    padding: 0 22px 1px 9px;
+    font-size: 12px;
+    background-color: var(--t-buttonBg);
     border: var(--t-boxBorder);
 }
-
-/*——/ Check-Box /————————————————————————————————————————————*/
-.check-box {
-    display: flex;
-    gap: 5px;
-    font-size: 12.5px;
-    width: fit-content;
+#mediafileconverter .batch-row .dropdown-toggle:hover {
+    background-color: var(--t-buttonHover);
 }
-.check-box span {
-    transform: translateY(4px);
-    color: var(--t-contrastColor);
-}
-.check-box input {
-    height: 20px;
-    width: 20px;
-    appearance: none;
-    border: 1px solid var(--t-checkboxBorder);
-    background-color: var(--t-checkboxBg);
-    border-radius: 5px;
-    font-family: codicon;
+#mediafileconverter .batch-row .dropdown-toggle::after {
+    right: 7px;
     font-size: 12px;
-    color: var(--t-checkboxCheckmarkColor);
-    padding: 4px 0 0 4px;
-    margin-bottom: 9px;
-    display: block;
-    cursor: pointer;
-    transition: background-color .15s ease, opacity .15s ease;
 }
-.check-box:last-of-type input {
-    margin-bottom: 3px;
-}
-.check-box input:checked {
-    background-color: var(--t-checkboxCheckedBg);
+.batch-row-remove {
+    flex: none;
+    width: 22px;
+    height: 22px;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    padding: 0;
     border: none;
-    transition: all .15s ease;
+    border-radius: 4px;
+    background: none;
+    color: var(--t-mainColor);
+    cursor: pointer;
+    transition: background-color .1s ease-out;
 }
-.check-box input::before {
-    opacity: 0;
+.batch-row-remove:hover {
+    background-color: var(--t-clearButtonHover);
 }
-.check-box input:checked::before {
-    content: '\eab2';
-    opacity: 1;
+.batch-row-remove i {
+    font-size: 13px;
+}
+
+/*——/ File Summary /—————————————————————————————————————————*/
+
+.file-summary {
+    position: absolute;
+    top: 109px;
+    left: 16px;
+    right: 15px;
+    font-size: 11.5px;
+    color: var(--t-mainColor);
+    opacity: .75;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+#mediafileconverter #proceed.button {
+    right: 15px;
+    bottom: 15px;
+    width: 92px;
+    height: 30px;
 }
 
 /*——/ Color Format Swatch /——————————————————————————————————*/
@@ -1329,6 +1669,16 @@ input.input-box:not(:placeholder-shown) {
     bottom: 50px;
     left: 10%;
     border-radius: 99px;
+}
+#loading-cancel.button {
+    right: auto;
+    left: 50%;
+    bottom: 12px;
+    transform: translateX(-50%);
+}
+#loading-cancel.button:disabled {
+    cursor: default;
+    opacity: .6;
 }
 .loading-bar-fill {
     background-color: var(--t-accent);
@@ -2222,6 +2572,44 @@ input:checked + .slider:before {
 .settings button.button:hover,
 .settings button.dropdown-toggle:hover {
     background-color: var(--t-settingsButtonToggleBgHover);
+}
+.settings button.button.featured {
+    background-color: var(--t-buttonFeaturedBg);
+    color: var(--t-buttonFeaturedColor);
+    border-color: transparent;
+}
+.settings button.button.featured:hover {
+    background-color: var(--t-buttonFeaturedHover);
+}
+.settings button.button:disabled {
+    cursor: default;
+    opacity: .75;
+}
+.update-row:not(.show) {
+    display: none;
+}
+.update-row .settings-icon {
+    color: var(--t-accent) !important;
+}
+.update-row .settings-name span.update-title {
+    top: calc(50% - 8px);
+}
+.update-row .settings-name span.update-version {
+    top: calc(50% + 8px);
+    font-size: 11px;
+    opacity: .6;
+}
+#t-settings.has-update::after {
+    content: "";
+    position: absolute;
+    top: 7px;
+    right: 8px;
+    width: 7px;
+    height: 7px;
+    border-radius: 50%;
+    background-color: var(--t-accent);
+    box-shadow: 0 0 0 2px var(--t-mainBg);
+    pointer-events: none;
 }
 
 /*——/ Sidebar Editor /——————————————————————————————————————*/
